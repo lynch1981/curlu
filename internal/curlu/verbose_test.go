@@ -142,6 +142,30 @@ func TestVerboseHTTP2(t *testing.T) {
 	}
 }
 
+func TestVerboseResolveKeepsURLHost(t *testing.T) {
+	rawURL, received := serveRaw(t, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n", 0)
+	port := listenerPort(t, rawURL)
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"-v",
+		"--resolve", "resolve.test:" + port + ":127.0.0.1",
+		"http://resolve.test:" + port + "/",
+	}, &stdout, &stderr, "test")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.HasPrefix(<-received, "GET / HTTP/1.1\r\n") {
+		t.Fatal("request not received")
+	}
+	trace := stderr.String()
+	if !strings.Contains(trace, "* Connected to resolve.test (127.0.0.1) port "+port+"\n") {
+		t.Fatalf("stderr missing connected line:\n%s", trace)
+	}
+	if !strings.Contains(trace, "> Host: resolve.test:"+port) {
+		t.Fatalf("stderr missing Host:\n%s", trace)
+	}
+}
+
 func TestVerboseLongOption(t *testing.T) {
 	opts, err := ParseArgs([]string{"--verbose", "http://example.test/"})
 	if err != nil {

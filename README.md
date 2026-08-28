@@ -26,6 +26,7 @@ Supported options:
 - `-v`, `--verbose`
 - `--connect-timeout <seconds>`
 - `-m`, `--max-time <seconds>`
+- `--resolve <[+]host:port:addr[,addr]...>` (repeatable)
 - `--utls-hello <id>`
 - `--utls-hello-list`
 - `--utls-cipher-append <0xNNNN>` (repeatable)
@@ -39,6 +40,15 @@ Supported options:
 
 Timeouts accept decimal seconds. A timeout of zero means no limit. Repeating a
 timeout option uses its final value.
+
+`--resolve` maps a URL host and port to one or more numeric addresses without
+changing `Host` or TLS SNI. Port must match the URL (80 or 443 when omitted).
+`*` matches any host for that port and is used only when no specific host
+matches. A leading `+` is accepted. `-host:port` removes an earlier mapping.
+
+```sh
+curlu --resolve example.com:443:127.0.0.1 https://example.com/
+```
 
 `-H 'Name:'` suppresses a header, including the normally generated `Host`,
 `User-Agent`, and `Accept` headers. Header names are matched case-insensitively.

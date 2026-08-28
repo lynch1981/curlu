@@ -56,7 +56,14 @@ func execute(opts Options, stdout, stderr io.Writer, version string) *ExitError 
 			port = "80"
 		}
 	}
-	conn, err := dialContext(connectCtx, "tcp", net.JoinHostPort(target.Hostname(), port))
+	dialHost := target.Hostname()
+	var conn net.Conn
+	var err error
+	if addrs := lookupResolve(opts.Resolve, dialHost, port); len(addrs) > 0 {
+		conn, err = dialResolved(connectCtx, addrs, port)
+	} else {
+		conn, err = dialContext(connectCtx, "tcp", net.JoinHostPort(dialHost, port))
+	}
 	if err != nil {
 		return connectFailure(err)
 	}
@@ -382,6 +389,51 @@ func (w *trackingWriter) Write(data []byte) (int, error) {
 		w.err = err
 	}
 	return n, err
+}
+
+func lookupResolve(rules []resolveEntry, hostname, port string) []string {
+	hostname = canonicalResolveHost(hostname)
+	port = canonicalPort(port)
+	type key struct{ host, port string }
+	mapped := make(map[key][]string)
+	for _, rule := range rules {
+		k := key{rule.host, rule.port}
+		if rule.remove {
+			delete(mapped, k)
+			continue
+		}
+		mapped[k] = rule.addrs
+	}
+	if addrs, ok := mapped[key{hostname, port}]; ok {
+		return addrs
+	}
+	return mapped[key{"*", port}]
+}
+
+func canonicalPort(port string) string {
+	n, err := strconv.ParseUint(port, 10, 16)
+	if err != nil {
+		return port
+	}
+	return strconv.FormatUint(n, 10)
+}
+
+func dialResolved(ctx context.Context, addrs []string, port string) (net.Conn, error) {
+	var lastErr error
+	for _, addr := range addrs {
+		conn, err := dialContext(ctx, "tcp", net.JoinHostPort(addr, port))
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			return nil, err
+		}
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no addresses")
+	}
+	return nil, lastErr
 }
 
 func connectFailure(err error) *ExitError {

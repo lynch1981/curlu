@@ -18,6 +18,7 @@ Options:
   -v, --verbose                 Show connection and header trace on stderr
       --connect-timeout <secs>  Limit DNS, TCP, and TLS connection time
   -m, --max-time <secs>         Limit the complete transfer time
+      --resolve <host:port:addr> Map host+port to address (repeatable)
       --utls-hello <id>         Select a uTLS ClientHello ID (HelloChrome_120)
       --utls-hello-list         List supported uTLS ClientHello IDs
       --utls-cipher-append <id> Append a 0xNNNN cipher ID (repeatable)

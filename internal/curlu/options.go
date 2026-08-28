@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -11,12 +12,20 @@ import (
 	utls "github.com/refraction-networking/utls"
 )
 
+type resolveEntry struct {
+	host   string
+	port   string
+	addrs  []string
+	remove bool
+}
+
 type Options struct {
 	Include        bool
 	Silent         bool
 	ShowError      bool
 	Verbose        bool
 	Headers        []string
+	Resolve        []resolveEntry
 	ConnectTimeout time.Duration
 	MaxTime        time.Duration
 	UTLSHello      utls.ClientHelloID
@@ -91,6 +100,17 @@ func ParseArgs(args []string) (Options, error) {
 				} else {
 					opts.MaxTime = duration
 				}
+			case "resolve":
+				var err error
+				value, i, err = optionArgument(args, i, name, value, hasValue)
+				if err != nil {
+					return opts, err
+				}
+				entry, err := parseResolve(value)
+				if err != nil {
+					return opts, fmt.Errorf("option --%s: %w", name, err)
+				}
+				opts.Resolve = append(opts.Resolve, entry)
 			case "utls-hello":
 				var err error
 				value, i, err = optionArgument(args, i, name, value, hasValue)
@@ -284,4 +304,106 @@ func parseSeconds(value string) (time.Duration, error) {
 		return 0, fmt.Errorf("invalid timeout %q", value)
 	}
 	return time.Duration(seconds * float64(time.Second)), nil
+}
+
+func parseResolve(value string) (resolveEntry, error) {
+	invalid := fmt.Errorf("invalid resolve %q", value)
+	if value == "" {
+		return resolveEntry{}, invalid
+	}
+	s := value
+	remove := false
+	switch {
+	case strings.HasPrefix(s, "-"):
+		remove = true
+		s = s[1:]
+	case strings.HasPrefix(s, "+"):
+		s = s[1:]
+	}
+	host, rest, err := splitResolveHost(s)
+	if err != nil || host == "" {
+		return resolveEntry{}, invalid
+	}
+	host = canonicalResolveHost(host)
+	if remove {
+		if rest == "" || strings.Contains(rest, ":") {
+			return resolveEntry{}, invalid
+		}
+		port, err := parseResolvePort(rest)
+		if err != nil {
+			return resolveEntry{}, invalid
+		}
+		return resolveEntry{host: host, port: port, remove: true}, nil
+	}
+	portStr, addrsStr, ok := strings.Cut(rest, ":")
+	if !ok || portStr == "" || addrsStr == "" {
+		return resolveEntry{}, invalid
+	}
+	port, err := parseResolvePort(portStr)
+	if err != nil {
+		return resolveEntry{}, invalid
+	}
+	addrs, err := parseResolveAddrs(addrsStr)
+	if err != nil {
+		return resolveEntry{}, invalid
+	}
+	return resolveEntry{host: host, port: port, addrs: addrs}, nil
+}
+
+func splitResolveHost(s string) (string, string, error) {
+	if strings.HasPrefix(s, "[") {
+		end := strings.IndexByte(s, ']')
+		if end < 2 {
+			return "", "", fmt.Errorf("invalid host")
+		}
+		host := s[1:end]
+		rest := s[end+1:]
+		if !strings.HasPrefix(rest, ":") {
+			return "", "", fmt.Errorf("invalid host")
+		}
+		return host, rest[1:], nil
+	}
+	host, rest, ok := strings.Cut(s, ":")
+	if !ok {
+		return "", "", fmt.Errorf("invalid host")
+	}
+	return host, rest, nil
+}
+
+func parseResolvePort(value string) (string, error) {
+	n, err := strconv.ParseUint(value, 10, 16)
+	if err != nil {
+		return "", err
+	}
+	return strconv.FormatUint(n, 10), nil
+}
+
+func parseResolveAddrs(value string) ([]string, error) {
+	parts := strings.Split(value, ",")
+	addrs := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			return nil, fmt.Errorf("invalid address")
+		}
+		ipStr := part
+		if strings.HasPrefix(part, "[") && strings.HasSuffix(part, "]") && len(part) > 2 {
+			ipStr = part[1 : len(part)-1]
+		}
+		ip := net.ParseIP(ipStr)
+		if ip == nil {
+			return nil, fmt.Errorf("invalid address")
+		}
+		addrs = append(addrs, ip.String())
+	}
+	return addrs, nil
+}
+
+func canonicalResolveHost(host string) string {
+	if host == "*" {
+		return "*"
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.String()
+	}
+	return strings.ToLower(host)
 }

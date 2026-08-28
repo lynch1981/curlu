@@ -116,6 +116,181 @@ func TestDNSErrorMapping(t *testing.T) {
 	}
 }
 
+func TestResolveOverridesDialAddress(t *testing.T) {
+	rawURL, received := serveRaw(t, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok", 0)
+	port := listenerPort(t, rawURL)
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--resolve", "resolve.test:" + port + ":127.0.0.1",
+		"http://resolve.test:" + port + "/health",
+	}, &stdout, &stderr, "test")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "ok" {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	request := <-received
+	if !strings.HasPrefix(request, "GET /health HTTP/1.1\r\n") {
+		t.Fatalf("request:\n%s", request)
+	}
+	if !strings.Contains(request, "Host: resolve.test:"+port+"\r\n") {
+		t.Fatalf("request missing Host:\n%s", request)
+	}
+}
+
+func TestResolveHTTPSUsesURLHostnameForSNI(t *testing.T) {
+	hello := make(chan *tls.ClientHelloInfo, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "secure")
+	}))
+	server.EnableHTTP2 = false
+	server.TLS = &tls.Config{
+		GetConfigForClient: func(info *tls.ClientHelloInfo) (*tls.Config, error) {
+			hello <- info
+			return nil, nil
+		},
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	port := listenerPort(t, server.URL)
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"-s", "--max-time", "2",
+		"--resolve", "resolve.test:" + port + ":127.0.0.1",
+		"https://resolve.test:" + port + "/",
+	}, &stdout, &stderr, "test")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "secure" {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	info := <-hello
+	if info.ServerName != "resolve.test" {
+		t.Fatalf("SNI = %q", info.ServerName)
+	}
+}
+
+func TestResolveHTTP2(t *testing.T) {
+	var host, proto string
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host = r.Host
+		proto = r.Proto
+		_, _ = io.WriteString(w, "ok")
+	}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	defer server.Close()
+
+	port := listenerPort(t, server.URL)
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"-s", "--utls-hello", "HelloChrome_102", "--max-time", "2",
+		"--resolve", "resolve.test:" + port + ":127.0.0.1",
+		"https://resolve.test:" + port + "/x",
+	}, &stdout, &stderr, "test")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "ok" {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	if proto != "HTTP/2.0" {
+		t.Fatalf("proto = %q", proto)
+	}
+	if host != "resolve.test:"+port {
+		t.Fatalf("Host = %q", host)
+	}
+}
+
+func TestResolvePortMismatchUsesDNS(t *testing.T) {
+	originalDial := dialContext
+	var gotAddr string
+	dialContext = func(_ context.Context, _, address string) (net.Conn, error) {
+		gotAddr = address
+		return nil, &net.DNSError{Err: "no such host", Name: "resolve.test", IsNotFound: true}
+	}
+	t.Cleanup(func() { dialContext = originalDial })
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--resolve", "resolve.test:80:127.0.0.1", "http://resolve.test:1234/"}, &stdout, &stderr, "test"); code != 6 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if gotAddr != "resolve.test:1234" {
+		t.Fatalf("dialed %q", gotAddr)
+	}
+}
+
+func TestResolveWildcardAndSpecific(t *testing.T) {
+	originalDial := dialContext
+	t.Cleanup(func() { dialContext = originalDial })
+
+	dialAndCapture := func(args []string) string {
+		t.Helper()
+		var gotAddr string
+		dialContext = func(_ context.Context, _, address string) (net.Conn, error) {
+			gotAddr = address
+			return nil, errors.New("stop")
+		}
+		var stdout, stderr bytes.Buffer
+		if code := Run(args, &stdout, &stderr, "test"); code != 7 {
+			t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+		}
+		return gotAddr
+	}
+
+	if got := dialAndCapture([]string{"--resolve", "*:443:10.0.0.1", "--resolve", "resolve.test:443:127.0.0.1", "https://resolve.test/"}); got != "127.0.0.1:443" {
+		t.Fatalf("specific = %q", got)
+	}
+	if got := dialAndCapture([]string{"--resolve", "other.test:443:10.0.0.1", "--resolve", "*:443:192.0.2.8", "https://resolve.test/"}); got != "192.0.2.8:443" {
+		t.Fatalf("wildcard = %q", got)
+	}
+}
+
+func TestResolveTriesAddressesInOrder(t *testing.T) {
+	rawURL, _ := serveRaw(t, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok", 0)
+	port := listenerPort(t, rawURL)
+	originalDial := dialContext
+	var got []string
+	dialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		got = append(got, address)
+		if strings.HasPrefix(address, "10.0.0.1:") {
+			return nil, errors.New("refused")
+		}
+		return originalDial(ctx, network, address)
+	}
+	t.Cleanup(func() { dialContext = originalDial })
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--resolve", "resolve.test:" + port + ":10.0.0.1,127.0.0.1",
+		"http://resolve.test:" + port + "/",
+	}, &stdout, &stderr, "test")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "ok" {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	want := []string{"10.0.0.1:" + port, "127.0.0.1:" + port}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("dials = %q, want %q", got, want)
+	}
+}
+
+func TestResolveConnectFailureIsNotDNS(t *testing.T) {
+	originalDial := dialContext
+	dialContext = func(context.Context, string, string) (net.Conn, error) {
+		return nil, errors.New("connection refused")
+	}
+	t.Cleanup(func() { dialContext = originalDial })
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--resolve", "resolve.test:80:127.0.0.1", "http://resolve.test/"}, &stdout, &stderr, "test"); code != 7 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+}
+
 func TestHTTPSAcceptsSelfSignedCertificate(t *testing.T) {
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "secure") }))
 	server.EnableHTTP2 = false
@@ -500,6 +675,20 @@ func TestOversizedResponseHeader(t *testing.T) {
 type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, fmt.Errorf("write failed") }
+
+func listenerPort(t *testing.T, rawURL string) string {
+	t.Helper()
+	trimmed := strings.TrimPrefix(rawURL, "http://")
+	trimmed = strings.TrimPrefix(trimmed, "https://")
+	if i := strings.IndexByte(trimmed, '/'); i >= 0 {
+		trimmed = trimmed[:i]
+	}
+	_, port, err := net.SplitHostPort(trimmed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return port
+}
 
 func serveRaw(t *testing.T, response string, delay time.Duration) (string, <-chan string) {
 	t.Helper()

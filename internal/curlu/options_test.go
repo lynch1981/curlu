@@ -191,6 +191,66 @@ func TestUTLSHelloCatalog(t *testing.T) {
 	}
 }
 
+func TestParseArgsResolve(t *testing.T) {
+	opts, err := ParseArgs([]string{
+		"--resolve", "example.com:443:127.0.0.1",
+		"--resolve=Foo.Example:80:[::1],10.0.0.2",
+		"--resolve", "+other.test:0443:127.0.0.1",
+		"--resolve", "*:8443:127.0.0.1",
+		"--resolve", "[0:0:0:0:0:0:0:1]:80:10.0.0.1",
+		"--resolve", "-OTHER.test:443",
+		"--resolve example.com:443:127.0.0.1",
+		"https://example.com/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []resolveEntry{
+		{host: "example.com", port: "443", addrs: []string{"127.0.0.1"}},
+		{host: "foo.example", port: "80", addrs: []string{"::1", "10.0.0.2"}},
+		{host: "other.test", port: "443", addrs: []string{"127.0.0.1"}},
+		{host: "*", port: "8443", addrs: []string{"127.0.0.1"}},
+		{host: "::1", port: "80", addrs: []string{"10.0.0.1"}},
+		{host: "other.test", port: "443", remove: true},
+		{host: "example.com", port: "443", addrs: []string{"127.0.0.1"}},
+	}
+	if !reflect.DeepEqual(opts.Resolve, want) {
+		t.Fatalf("Resolve = %#v, want %#v", opts.Resolve, want)
+	}
+}
+
+func TestLookupResolve(t *testing.T) {
+	rules := []resolveEntry{
+		{host: "example.com", port: "443", addrs: []string{"1.1.1.1"}},
+		{host: "example.com", port: "443", addrs: []string{"2.2.2.2"}},
+		{host: "*", port: "443", addrs: []string{"9.9.9.9"}},
+		{host: "gone.test", port: "80", addrs: []string{"3.3.3.3"}},
+		{host: "gone.test", port: "80", remove: true},
+		{host: "*", port: "8080", addrs: []string{"8.8.8.8"}},
+		{host: "::1", port: "80", addrs: []string{"127.0.0.1"}},
+	}
+	tests := []struct {
+		host, port string
+		want       []string
+	}{
+		{"example.com", "443", []string{"2.2.2.2"}},
+		{"EXAMPLE.COM", "443", []string{"2.2.2.2"}},
+		{"other.test", "443", []string{"9.9.9.9"}},
+		{"gone.test", "80", nil},
+		{"anything.test", "8080", []string{"8.8.8.8"}},
+		{"example.com", "80", nil},
+		{"::1", "80", []string{"127.0.0.1"}},
+		{"0:0:0:0:0:0:0:1", "80", []string{"127.0.0.1"}},
+		{"example.com", "0443", []string{"2.2.2.2"}},
+	}
+	for _, tc := range tests {
+		got := lookupResolve(rules, tc.host, tc.port)
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("lookup(%q, %q) = %q, want %q", tc.host, tc.port, got, tc.want)
+		}
+	}
+}
+
 func TestParseArgsErrors(t *testing.T) {
 	tests := [][]string{
 		{}, {"--unknown", "http://example.test"}, {"-m", "-1", "http://example.test"},
@@ -203,6 +263,13 @@ func TestParseArgsErrors(t *testing.T) {
 		{"--utls-alpn-hex", "https://example.test"}, {"--utls-alpn-hex", "6", "https://example.test"},
 		{"--utls-alpn-hex", "zz", "https://example.test"}, {"--utls-alpn-none=yes", "https://example.test"},
 		{"--utls-alpn-none", "--utls-alpn-hex", "68", "https://example.test"},
+		{"--resolve"}, {"--resolve", "example.com", "http://example.test"},
+		{"--resolve", "example.com:443:not-an-ip", "http://example.test"},
+		{"--resolve", "example.com:99999:127.0.0.1", "http://example.test"},
+		{"--resolve", "example.com:443:", "http://example.test"},
+		{"--resolve", "-example.com:443:127.0.0.1", "http://example.test"},
+		{"--resolve", "example.com:443:127.0.0.1,", "http://example.test"},
+		{"--resolve", "[]:443:127.0.0.1", "http://example.test"},
 	}
 	for _, cipher := range []string{"0x0", "0X1234", "1234", "0x12345", "0xzzzz", "-0x0001"} {
 		tests = append(tests, []string{"--utls-cipher-append", cipher, "https://example.test"})
