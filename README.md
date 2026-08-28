@@ -78,10 +78,11 @@ GREASE cipher values. It is printed even with `--silent`. The Hello selector,
 cipher append, and info options require an `https://` URL; using them with
 `http://` is an invalid invocation.
 
-Test::Nginx looks up a binary named `curl`. Point `PATH` at a `curl` that is
-curlu (or `exec` curlu as `curl`). curlu accepts the argv Test::Nginx generates
-(`-i -H -sS --http2-prior-knowledge --connect-timeout --max-time`, and a
-single-token `--- curl_options` blob such as `--utls-hello HelloChrome_120`).
+Test::Nginx looks up a binary named `curl`. `./build.sh` writes a `curl`
+symlink next to `curlu`, so pointing `PATH` at the repo root is enough. curlu
+accepts the argv Test::Nginx generates (`-i -H -sS --http2-prior-knowledge
+--connect-timeout --max-time`, and a single-token `--- curl_options` blob such
+as `--utls-hello HelloChrome_120`).
 
 ## Compatibility boundaries
 
@@ -110,7 +111,8 @@ go test -race ./...
 ```
 
 The build script requires Go 1.24.0 or newer on `PATH`, embeds the current Git
-revision in the binary, and writes the executable to `./curlu`.
+revision in the binary, writes the executable to `./curlu`, and creates a
+`./curl` symlink pointing at it.
 
 ## Relevant exit codes
 

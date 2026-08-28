@@ -30,4 +30,7 @@ go build \
   -o curlu \
   ./cmd/curlu
 
-printf 'Built curlu (%s)\n' "${version}"
+rm -f curl
+ln -s curlu curl
+
+printf 'Built curlu (%s) and symlink curl -> curlu\n' "${version}"
