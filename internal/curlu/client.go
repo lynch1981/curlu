@@ -26,7 +26,7 @@ func execute(opts Options, stdout, stderr io.Writer, version string) *ExitError 
 	if exitErr != nil {
 		return exitErr
 	}
-	if target.Scheme != "https" && (opts.UTLSHello.Client != "" || len(opts.UTLSCiphers) > 0 || opts.UTLSInfo) {
+	if target.Scheme != "https" && utlsOptionsSet(opts) {
 		return fail(2, "uTLS options require an HTTPS URL")
 	}
 	headers, suppressedDefaults, exitErr := parseRequestHeaders(opts.Headers)

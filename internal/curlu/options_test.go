@@ -104,6 +104,47 @@ func TestParseArgsCurlOptionsBlob(t *testing.T) {
 	}
 }
 
+func TestParseArgsUTLSALPN(t *testing.T) {
+	opts, err := ParseArgs([]string{
+		"--utls-hello", "HelloChrome_120",
+		"--utls-alpn-hex", "6820",
+		"https://example.test/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.UTLSALPN != "h " {
+		t.Fatalf("UTLSALPN = %q", opts.UTLSALPN)
+	}
+	if opts.UTLSALPNNone {
+		t.Fatal("UTLSALPNNone is true")
+	}
+
+	opts, err = ParseArgs([]string{"--utls-alpn-none", "--utls-alpn-hex=68", "https://example.test/"})
+	if err == nil {
+		t.Fatalf("combined ALPN flags unexpectedly succeeded: %+v", opts)
+	}
+
+	opts, err = ParseArgs([]string{"--utls-alpn-none", "https://example.test/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.UTLSALPNNone || opts.UTLSALPN != "" {
+		t.Fatalf("none: %+v", opts)
+	}
+
+	opts, err = ParseArgs([]string{
+		"--utls-hello HelloChrome_120 --utls-alpn-hex 2068",
+		"https://example.test/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.UTLSHello != utls.HelloChrome_120 || opts.UTLSALPN != " h" {
+		t.Fatalf("blob: hello=%#v alpn=%q", opts.UTLSHello, opts.UTLSALPN)
+	}
+}
+
 func TestParseArgsUTLSHelloListNeedsNoURL(t *testing.T) {
 	opts, err := ParseArgs([]string{"--utls-hello-list"})
 	if err != nil {
@@ -159,6 +200,9 @@ func TestParseArgsErrors(t *testing.T) {
 		{"--utls-hello", "Chrome-102", "https://example.test"}, {"--utls-cipher-append"},
 		{"--utls-hello-list=yes"}, {"--utls-info=yes", "https://example.test"},
 		{"--verbose=yes", "https://example.test"},
+		{"--utls-alpn-hex", "https://example.test"}, {"--utls-alpn-hex", "6", "https://example.test"},
+		{"--utls-alpn-hex", "zz", "https://example.test"}, {"--utls-alpn-none=yes", "https://example.test"},
+		{"--utls-alpn-none", "--utls-alpn-hex", "68", "https://example.test"},
 	}
 	for _, cipher := range []string{"0x0", "0X1234", "1234", "0x12345", "0xzzzz", "-0x0001"} {
 		tests = append(tests, []string{"--utls-cipher-append", cipher, "https://example.test"})

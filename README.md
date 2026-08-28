@@ -29,6 +29,8 @@ Supported options:
 - `--utls-hello <id>`
 - `--utls-hello-list`
 - `--utls-cipher-append <0xNNNN>` (repeatable)
+- `--utls-alpn-hex <hex>`
+- `--utls-alpn-none`
 - `--utls-info`
 - `-k`, `--insecure` (accepted; verification is always disabled)
 - `--http2-prior-knowledge` (accepted; ALPN still comes from the parrot)
@@ -57,8 +59,12 @@ curlu --utls-hello-list
 ```
 
 A selected parrot keeps its own ALPN. `HelloGolang` continues to advertise
-`http/1.1` only. If the server selects `h2`, curlu performs the GET over
-HTTP/2. If it selects `http/1.1` or no ALPN, the GET uses HTTP/1.1.
+`http/1.1` only. `--utls-alpn-hex` replaces the first advertised protocol with
+the decoded bytes (even-length hex, so space-containing values survive
+Test::Nginx `--- curl_options`). Remaining parrot protocols are kept, so
+Chrome stays `[decoded, "http/1.1"]`. `--utls-alpn-none` omits the ALPN
+extension. If the server selects `h2`, curlu performs the GET over HTTP/2.
+If it selects `http/1.1` or no ALPN, the GET uses HTTP/1.1.
 
 `--utls-cipher-append` appends one cipher-suite ID to the selected ClientHello.
 The value must contain exactly four hexadecimal digits after a lowercase `0x`.
@@ -74,9 +80,8 @@ EXPECTED_CIPHER_COUNT=17
 ```
 
 The count includes appended values, duplicates, and SCSV entries, but excludes
-GREASE cipher values. It is printed even with `--silent`. The Hello selector,
-cipher append, and info options require an `https://` URL; using them with
-`http://` is an invalid invocation.
+GREASE cipher values. It is printed even with `--silent`. The Hello selector, cipher append, ALPN, and info options require an
+`https://` URL; using them with `http://` is an invalid invocation.
 
 Test::Nginx looks up a binary named `curl`. `./build.sh` writes a `curl`
 symlink next to `curlu`, so pointing `PATH` at the repo root is enough. curlu

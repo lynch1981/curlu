@@ -285,11 +285,69 @@ func TestUTLSInfoPrecedesHandshakeFailure(t *testing.T) {
 	}
 }
 
+func TestUTLSALPNHexRewritesFirstProtocol(t *testing.T) {
+	hello := make(chan *tls.ClientHelloInfo, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	server.EnableHTTP2 = false
+	server.TLS = &tls.Config{
+		GetConfigForClient: func(info *tls.ClientHelloInfo) (*tls.Config, error) {
+			hello <- info
+			return nil, nil
+		},
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"-s", "--utls-hello", "HelloChrome_120",
+		"--utls-alpn-hex", "6820",
+		server.URL,
+	}, &stdout, &stderr, "test")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	info := <-hello
+	if want := []string{"h ", "http/1.1"}; !reflect.DeepEqual(info.SupportedProtos, want) {
+		t.Fatalf("ALPN = %q, want %q", info.SupportedProtos, want)
+	}
+}
+
+func TestUTLSALPNNoneOmitsExtension(t *testing.T) {
+	hello := make(chan *tls.ClientHelloInfo, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	server.EnableHTTP2 = false
+	server.TLS = &tls.Config{
+		GetConfigForClient: func(info *tls.ClientHelloInfo) (*tls.Config, error) {
+			hello <- info
+			return nil, nil
+		},
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-s", "--utls-hello", "HelloChrome_120", "--utls-alpn-none", server.URL}, &stdout, &stderr, "test")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	info := <-hello
+	if len(info.SupportedProtos) != 0 {
+		t.Fatalf("ALPN = %q, want empty", info.SupportedProtos)
+	}
+}
+
 func TestUTLSOptionsRequireHTTPS(t *testing.T) {
 	for _, args := range [][]string{
 		{"--utls-hello", "HelloChrome_102", "http://example.test/"},
 		{"--utls-cipher-append", "0x1234", "http://example.test/"},
 		{"--utls-info", "http://example.test/"},
+		{"--utls-alpn-hex", "68", "http://example.test/"},
+		{"--utls-alpn-none", "http://example.test/"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if code := Run(args, &stdout, &stderr, "test"); code != 2 {

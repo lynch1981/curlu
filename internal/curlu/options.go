@@ -1,6 +1,7 @@
 package curlu
 
 import (
+	"encoding/hex"
 	"fmt"
 	"math"
 	"strconv"
@@ -22,6 +23,8 @@ type Options struct {
 	UTLSCiphers    []uint16
 	UTLSHelloList  bool
 	UTLSInfo       bool
+	UTLSALPNNone   bool
+	UTLSALPN       string
 	URL            string
 	Help           bool
 	Version        bool
@@ -120,9 +123,26 @@ func ParseArgs(args []string) (Options, error) {
 					return opts, optionValueError(name)
 				}
 				opts.UTLSInfo = true
+			case "utls-alpn-none":
+				if hasValue {
+					return opts, optionValueError(name)
+				}
+				opts.UTLSALPNNone = true
+			case "utls-alpn-hex":
+				var err error
+				value, i, err = optionArgument(args, i, name, value, hasValue)
+				if err != nil {
+					return opts, err
+				}
+				proto, err := parseALPNHex(value)
+				if err != nil {
+					return opts, fmt.Errorf("option --%s: %w", name, err)
+				}
+				opts.UTLSALPN = proto
 			case "http2-prior-knowledge", "insecure":
 				// Accepted so Test::Nginx can invoke curlu as `curl`.
-				// HTTPS verification is always disabled; ALPN comes from the parrot.
+				// HTTPS verification is always disabled; parrot ALPN can be
+				// overridden with --utls-alpn-hex / --utls-alpn-none.
 				if hasValue {
 					return opts, optionValueError(name)
 				}
@@ -184,10 +204,24 @@ func ParseArgs(args []string) (Options, error) {
 			}
 		}
 	}
+	if opts.UTLSALPNNone && opts.UTLSALPN != "" {
+		return opts, fmt.Errorf("option --utls-alpn-none cannot be combined with --utls-alpn-hex")
+	}
 	if !opts.Help && !opts.Version && !opts.UTLSHelloList && opts.URL == "" {
 		return opts, fmt.Errorf("no URL specified")
 	}
 	return opts, nil
+}
+
+func parseALPNHex(value string) (string, error) {
+	if value == "" || len(value)%2 != 0 {
+		return "", fmt.Errorf("invalid ALPN hex %q (expected even-length hex)", value)
+	}
+	raw, err := hex.DecodeString(value)
+	if err != nil {
+		return "", fmt.Errorf("invalid ALPN hex %q", value)
+	}
+	return string(raw), nil
 }
 
 func parseCipherID(value string) (uint16, error) {

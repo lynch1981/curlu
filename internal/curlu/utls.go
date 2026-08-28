@@ -98,15 +98,18 @@ func handshakeUTLS(conn net.Conn, opts Options, serverName string, stderr io.Wri
 		InsecureSkipVerify: true, // Deliberate curlu v1 policy.
 	}
 	if helloID == utls.HelloGolang {
-		config.NextProtos = []string{"http/1.1"}
+		config.NextProtos = golangNextProtos(opts)
 	}
 	tlsConn := utls.UClient(conn, config, helloID)
 
-	if len(opts.UTLSCiphers) > 0 || opts.UTLSInfo {
+	if utlsMutatesHello(opts) {
 		if err := tlsConn.BuildHandshakeState(); err != nil {
 			return nil, "", fail(35, "TLS handshake failed: %v", err)
 		}
 		tlsConn.HandshakeState.Hello.CipherSuites = append(tlsConn.HandshakeState.Hello.CipherSuites, opts.UTLSCiphers...)
+		if helloID != utls.HelloGolang {
+			applyParrotALPN(tlsConn, opts)
+		}
 		if opts.UTLSInfo {
 			_, _ = fmt.Fprintf(stderr, "EXPECTED_CIPHER_COUNT=%d\n", countNonGREASE(tlsConn.HandshakeState.Hello.CipherSuites))
 		}
@@ -135,6 +138,64 @@ func handshakeUTLS(conn net.Conn, opts Options, serverName string, stderr io.Wri
 	default:
 		return nil, state.NegotiatedProtocol, fail(1, "server negotiated protocol %q; only HTTP/1.1 and HTTP/2 are supported", state.NegotiatedProtocol)
 	}
+}
+
+func utlsOptionsSet(opts Options) bool {
+	return opts.UTLSHello.Client != "" || len(opts.UTLSCiphers) > 0 || opts.UTLSInfo || opts.UTLSALPNNone || opts.UTLSALPN != ""
+}
+
+func utlsMutatesHello(opts Options) bool {
+	return len(opts.UTLSCiphers) > 0 || opts.UTLSInfo || opts.UTLSALPNNone || opts.UTLSALPN != ""
+}
+
+func golangNextProtos(opts Options) []string {
+	switch {
+	case opts.UTLSALPNNone:
+		return nil
+	case opts.UTLSALPN != "":
+		return []string{opts.UTLSALPN, "http/1.1"}
+	default:
+		return []string{"http/1.1"}
+	}
+}
+
+func applyParrotALPN(tlsConn *utls.UConn, opts Options) {
+	if !opts.UTLSALPNNone && opts.UTLSALPN == "" {
+		return
+	}
+	if opts.UTLSALPNNone {
+		keep := make([]utls.TLSExtension, 0, len(tlsConn.Extensions))
+		for _, ext := range tlsConn.Extensions {
+			if _, ok := ext.(*utls.ALPNExtension); ok {
+				continue
+			}
+			keep = append(keep, ext)
+		}
+		tlsConn.Extensions = keep
+		tlsConn.HandshakeState.Hello.AlpnProtocols = nil
+		return
+	}
+	first := opts.UTLSALPN
+	for _, ext := range tlsConn.Extensions {
+		alpn, ok := ext.(*utls.ALPNExtension)
+		if !ok {
+			continue
+		}
+		alpn.AlpnProtocols = replaceFirstALPN(alpn.AlpnProtocols, first)
+		tlsConn.HandshakeState.Hello.AlpnProtocols = alpn.AlpnProtocols
+		return
+	}
+	alpn := &utls.ALPNExtension{AlpnProtocols: []string{first}}
+	tlsConn.Extensions = append(tlsConn.Extensions, alpn)
+	tlsConn.HandshakeState.Hello.AlpnProtocols = alpn.AlpnProtocols
+}
+
+func replaceFirstALPN(existing []string, first string) []string {
+	out := []string{first}
+	if len(existing) > 1 {
+		out = append(out, existing[1:]...)
+	}
+	return out
 }
 
 func countNonGREASE(ciphers []uint16) int {
