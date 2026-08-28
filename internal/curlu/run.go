@@ -22,6 +22,8 @@ Options:
       --utls-hello-list         List supported uTLS ClientHello IDs
       --utls-cipher-append <id> Append a 0xNNNN cipher ID (repeatable)
       --utls-info               Print EXPECTED_CIPHER_COUNT to stderr
+  -k, --insecure                Accepted; verification is always disabled
+      --http2-prior-knowledge   Accepted; ALPN still comes from the parrot
   -h, --help                    Show this help
   -V, --version                 Show version information
 

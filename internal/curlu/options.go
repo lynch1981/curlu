@@ -28,6 +28,7 @@ type Options struct {
 }
 
 func ParseArgs(args []string) (Options, error) {
+	args = expandCombinedFlags(args)
 	var opts Options
 	positional := false
 	for i := 0; i < len(args); i++ {
@@ -119,6 +120,12 @@ func ParseArgs(args []string) (Options, error) {
 					return opts, optionValueError(name)
 				}
 				opts.UTLSInfo = true
+			case "http2-prior-knowledge", "insecure":
+				// Accepted so Test::Nginx can invoke curlu as `curl`.
+				// HTTPS verification is always disabled; ALPN comes from the parrot.
+				if hasValue {
+					return opts, optionValueError(name)
+				}
 			case "help":
 				if hasValue {
 					return opts, optionValueError(name)
@@ -147,6 +154,8 @@ func ParseArgs(args []string) (Options, error) {
 				opts.ShowError = true
 			case 'v':
 				opts.Verbose = true
+			case 'k':
+				// curl --insecure. curlu always skips certificate verification.
 			case 'h':
 				opts.Help = true
 			case 'V':
@@ -204,6 +213,20 @@ func optionArgument(args []string, index int, name, value string, hasValue bool)
 
 func optionValueError(name string) error {
 	return fmt.Errorf("option --%s does not take a value", name)
+}
+
+// expandCombinedFlags splits a single argv that contains spaces, matching
+// Test::Nginx `--- curl_options` which is pushed as one token.
+func expandCombinedFlags(args []string) []string {
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") && strings.Contains(arg, " ") {
+			out = append(out, strings.Fields(arg)...)
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out
 }
 
 func setURL(opts *Options, value string) error {

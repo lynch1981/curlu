@@ -65,6 +65,45 @@ func TestParseArgsUTLSOptions(t *testing.T) {
 	}
 }
 
+func TestParseArgsTestNginxCurlCommand(t *testing.T) {
+	opts, err := ParseArgs([]string{
+		"-i", "-H", "User-Agent:", "-H", "Accept:", "-H", "Host:", "-sS",
+		"--http2-prior-knowledge", "-k", "--insecure", "-vv",
+		"-H", "Host: localhost",
+		"--connect-timeout", "3", "--max-time", "3",
+		"--utls-hello HelloFirefox_55",
+		"https://localhost:1984/t",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.Include || !opts.Silent || !opts.ShowError || !opts.Verbose {
+		t.Fatalf("boolean options not parsed: %+v", opts)
+	}
+	if opts.UTLSHello != utls.HelloFirefox_55 {
+		t.Fatalf("UTLSHello = %#v", opts.UTLSHello)
+	}
+	if opts.URL != "https://localhost:1984/t" {
+		t.Fatalf("URL = %q", opts.URL)
+	}
+}
+
+func TestParseArgsCurlOptionsBlob(t *testing.T) {
+	opts, err := ParseArgs([]string{
+		"--utls-hello=HelloChrome_120 --utls-cipher-append 0x00ff",
+		"https://example.test/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.UTLSHello != utls.HelloChrome_120 {
+		t.Fatalf("UTLSHello = %#v", opts.UTLSHello)
+	}
+	if want := []uint16{0x00ff}; !reflect.DeepEqual(opts.UTLSCiphers, want) {
+		t.Fatalf("UTLSCiphers = %#v, want %#v", opts.UTLSCiphers, want)
+	}
+}
+
 func TestParseArgsUTLSHelloListNeedsNoURL(t *testing.T) {
 	opts, err := ParseArgs([]string{"--utls-hello-list"})
 	if err != nil {

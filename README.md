@@ -30,6 +30,8 @@ Supported options:
 - `--utls-hello-list`
 - `--utls-cipher-append <0xNNNN>` (repeatable)
 - `--utls-info`
+- `-k`, `--insecure` (accepted; verification is always disabled)
+- `--http2-prior-knowledge` (accepted; ALPN still comes from the parrot)
 - `-h`, `--help`
 - `-V`, `--version`
 
@@ -75,6 +77,11 @@ The count includes appended values, duplicates, and SCSV entries, but excludes
 GREASE cipher values. It is printed even with `--silent`. The Hello selector,
 cipher append, and info options require an `https://` URL; using them with
 `http://` is an invalid invocation.
+
+Test::Nginx looks up a binary named `curl`. Point `PATH` at a `curl` that is
+curlu (or `exec` curlu as `curl`). curlu accepts the argv Test::Nginx generates
+(`-i -H -sS --http2-prior-knowledge --connect-timeout --max-time`, and a
+single-token `--- curl_options` blob such as `--utls-hello HelloChrome_120`).
 
 ## Compatibility boundaries
 
