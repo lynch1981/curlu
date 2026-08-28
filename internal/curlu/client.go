@@ -29,7 +29,7 @@ func execute(opts Options, stdout, stderr io.Writer, version string) *ExitError 
 	if target.Scheme != "https" && (opts.UTLSHello.Client != "" || len(opts.UTLSCiphers) > 0 || opts.UTLSInfo) {
 		return fail(2, "uTLS options require an HTTPS URL")
 	}
-	request, exitErr := buildRequest(target, opts.Headers, version)
+	headers, suppressedDefaults, exitErr := parseRequestHeaders(opts.Headers)
 	if exitErr != nil {
 		return exitErr
 	}
@@ -62,16 +62,18 @@ func execute(opts Options, stdout, stderr io.Writer, version string) *ExitError 
 	}
 	defer conn.Close()
 
+	proto := ""
 	if target.Scheme == "https" {
 		serverName := ""
 		if net.ParseIP(target.Hostname()) == nil {
 			serverName = target.Hostname()
 		}
-		tlsConn, exitErr := handshakeUTLS(conn, opts, serverName, stderr, connectCtx)
+		tlsConn, negotiated, exitErr := handshakeUTLS(conn, opts, serverName, stderr, connectCtx)
 		if exitErr != nil {
 			return exitErr
 		}
 		conn = tlsConn
+		proto = negotiated
 	}
 	cancelConnect()
 
@@ -80,6 +82,11 @@ func execute(opts Options, stdout, stderr io.Writer, version string) *ExitError 
 			return fail(55, "failed setting transfer deadline: %v", err)
 		}
 	}
+	if proto == "h2" {
+		return roundTripHTTP2(conn, target, headers, suppressedDefaults, stdout, opts.Include, version, operationCtx)
+	}
+
+	request := serializeHTTP1(target, headers, suppressedDefaults, version)
 	if err := writeAll(conn, request); err != nil {
 		if isTimeout(err) || operationCtx.Err() != nil {
 			return fail(28, "operation timed out")
@@ -112,17 +119,17 @@ func parseURL(raw string) (*url.URL, *ExitError) {
 }
 
 type requestHeader struct {
-	name, wire string
-	suppress   bool
+	name, wire, value string
+	suppress          bool
 }
 
-func buildRequest(target *url.URL, values []string, version string) ([]byte, *ExitError) {
+func parseRequestHeaders(values []string) ([]requestHeader, map[string]bool, *ExitError) {
 	headers := make([]requestHeader, 0, len(values))
 	suppressedDefaults := make(map[string]bool)
 	for _, value := range values {
 		header, err := parseRequestHeader(value)
 		if err != nil {
-			return nil, fail(2, "invalid header %q: %v", value, err)
+			return nil, nil, fail(2, "invalid header %q: %v", value, err)
 		}
 		headers = append(headers, header)
 		lowerName := strings.ToLower(header.name)
@@ -130,6 +137,18 @@ func buildRequest(target *url.URL, values []string, version string) ([]byte, *Ex
 			suppressedDefaults[lowerName] = true
 		}
 	}
+	return headers, suppressedDefaults, nil
+}
+
+func buildRequest(target *url.URL, values []string, version string) ([]byte, *ExitError) {
+	headers, suppressedDefaults, exitErr := parseRequestHeaders(values)
+	if exitErr != nil {
+		return nil, exitErr
+	}
+	return serializeHTTP1(target, headers, suppressedDefaults, version), nil
+}
+
+func serializeHTTP1(target *url.URL, headers []requestHeader, suppressedDefaults map[string]bool, version string) []byte {
 	var request bytes.Buffer
 	fmt.Fprintf(&request, "GET %s HTTP/1.1\r\n", target.RequestURI())
 	if !suppressedDefaults["host"] {
@@ -148,7 +167,7 @@ func buildRequest(target *url.URL, values []string, version string) ([]byte, *Ex
 		}
 	}
 	request.WriteString("\r\n")
-	return request.Bytes(), nil
+	return request.Bytes()
 }
 
 func requestHost(target *url.URL) string {
@@ -179,7 +198,7 @@ func parseRequestHeader(value string) (requestHeader, error) {
 	if strings.TrimSpace(rest) == "" {
 		return requestHeader{name: name, suppress: true}, nil
 	}
-	return requestHeader{name: name, wire: name + ":" + rest}, nil
+	return requestHeader{name: name, wire: name + ":" + rest, value: rest}, nil
 }
 
 func validHeaderName(name string) bool {

@@ -54,8 +54,8 @@ curlu --utls-hello-list
 ```
 
 A selected parrot keeps its own ALPN. `HelloGolang` continues to advertise
-`http/1.1` only. curlu speaks HTTP/1.1, so if the server negotiates another
-protocol (for example `h2`), the transfer fails.
+`http/1.1` only. If the server selects `h2`, curlu performs the GET over
+HTTP/2. If it selects `http/1.1` or no ALPN, the GET uses HTTP/1.1.
 
 `--utls-cipher-append` appends one cipher-suite ID to the selected ClientHello.
 The value must contain exactly four hexadecimal digits after a lowercase `0x`.
@@ -77,16 +77,18 @@ cipher append, and info options require an `https://` URL; using them with
 
 ## Compatibility boundaries
 
-curlu v1 performs one HTTP/1.1 GET request to one explicit `http://` or
-`https://` URL. It connects directly and does not support proxy environment
-variables, redirects, request bodies, URL globbing, configuration files,
-HTTP/2, or other protocols. HTTP 4xx and 5xx statuses are successful transfers,
-matching curl without `--fail`.
+curlu v1 performs one GET request to one explicit `http://` or `https://` URL.
+`http://` uses HTTP/1.1. `https://` uses HTTP/2 when ALPN selects `h2` and
+HTTP/1.1 otherwise. It connects directly and does not support proxy environment
+variables, redirects, request bodies, URL globbing, configuration files, or
+other protocols. HTTP 4xx and 5xx statuses are successful transfers, matching
+curl without `--fail`.
 
 Response data is written to stdout. `-i` includes the received status line and
-headers. Errors use `curlu: (N) message` on stderr with the corresponding curl
-exit code. `-s` suppresses diagnostics and `-S` restores them. curlu does not
-implement a progress meter.
+headers (`HTTP/2 200` when the transfer used HTTP/2). Errors use
+`curlu: (N) message` on stderr with the corresponding curl exit code. `-s`
+suppresses diagnostics and `-S` restores them. curlu does not implement a
+progress meter.
 
 ## Build and test
 

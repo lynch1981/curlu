@@ -236,22 +236,6 @@ func TestUTLSParrotKeepsALPN(t *testing.T) {
 	}
 }
 
-func TestUTLSRejectsHTTP2Negotiation(t *testing.T) {
-	server := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	server.EnableHTTP2 = false
-	server.TLS = &tls.Config{NextProtos: []string{"h2"}}
-	server.StartTLS()
-	defer server.Close()
-
-	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"--utls-hello", "HelloChrome_102", server.URL}, &stdout, &stderr, "test"); code != 1 {
-		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
-	}
-	if !strings.Contains(stderr.String(), `server negotiated protocol "h2"`) {
-		t.Fatalf("stderr = %q", stderr.String())
-	}
-}
-
 func TestUTLSInfoDoesNotCountAppendedGREASE(t *testing.T) {
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 	server.EnableHTTP2 = false

@@ -87,7 +87,7 @@ func utlsHelloNames() []string {
 	return names
 }
 
-func handshakeUTLS(conn net.Conn, opts Options, serverName string, stderr io.Writer, ctx context.Context) (net.Conn, *ExitError) {
+func handshakeUTLS(conn net.Conn, opts Options, serverName string, stderr io.Writer, ctx context.Context) (net.Conn, string, *ExitError) {
 	helloID := utls.HelloGolang
 	if opts.UTLSHello.Client != "" {
 		helloID = opts.UTLSHello
@@ -103,7 +103,7 @@ func handshakeUTLS(conn net.Conn, opts Options, serverName string, stderr io.Wri
 
 	if len(opts.UTLSCiphers) > 0 || opts.UTLSInfo {
 		if err := tlsConn.BuildHandshakeState(); err != nil {
-			return nil, fail(35, "TLS handshake failed: %v", err)
+			return nil, "", fail(35, "TLS handshake failed: %v", err)
 		}
 		tlsConn.HandshakeState.Hello.CipherSuites = append(tlsConn.HandshakeState.Hello.CipherSuites, opts.UTLSCiphers...)
 		if opts.UTLSInfo {
@@ -111,21 +111,24 @@ func handshakeUTLS(conn net.Conn, opts Options, serverName string, stderr io.Wri
 		}
 		if helloID != utls.HelloGolang {
 			if err := tlsConn.MarshalClientHello(); err != nil {
-				return nil, fail(35, "TLS handshake failed: %v", err)
+				return nil, "", fail(35, "TLS handshake failed: %v", err)
 			}
 		}
 	}
 
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		if isTimeout(err) || ctx.Err() != nil {
-			return nil, fail(28, "connection timed out")
+			return nil, "", fail(28, "connection timed out")
 		}
-		return nil, fail(35, "TLS handshake failed: %v", err)
+		return nil, "", fail(35, "TLS handshake failed: %v", err)
 	}
-	if proto := tlsConn.ConnectionState().NegotiatedProtocol; proto != "" && proto != "http/1.1" {
-		return nil, fail(1, "server negotiated protocol %q; only HTTP/1.1 is supported", proto)
+	proto := tlsConn.ConnectionState().NegotiatedProtocol
+	switch proto {
+	case "", "http/1.1", "h2":
+		return tlsConn, proto, nil
+	default:
+		return nil, proto, fail(1, "server negotiated protocol %q; only HTTP/1.1 and HTTP/2 are supported", proto)
 	}
-	return tlsConn, nil
 }
 
 func countNonGREASE(ciphers []uint16) int {

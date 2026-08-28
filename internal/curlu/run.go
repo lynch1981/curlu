@@ -8,7 +8,7 @@ import (
 
 const helpText = `Usage: curlu [options...] <url>
 
-HTTP(S)-only curl-compatible client using uTLS and HTTP/1.1.
+HTTP(S)-only curl-compatible client using uTLS, HTTP/1.1, and HTTP/2.
 
 Options:
   -i, --include                 Include response headers in stdout
@@ -26,7 +26,7 @@ Options:
 
 WARNING: HTTPS certificate verification is always disabled.
 Only one explicit http:// or https:// URL and the GET method are supported.
-Proxies, redirects, request bodies, and HTTP/2 are not supported.
+Proxies, redirects, and request bodies are not supported.
 `
 
 func Run(args []string, stdout, stderr io.Writer, version string) int {
