@@ -42,11 +42,31 @@ func TestParseArgsLastTimeoutWins(t *testing.T) {
 func TestParseArgsErrors(t *testing.T) {
 	tests := [][]string{
 		{}, {"--unknown", "http://example.test"}, {"-m", "-1", "http://example.test"},
+		{"-m", "1m", "http://example.test"}, {"--max-time", "NaN", "http://example.test"},
 		{"http://one.test", "http://two.test"}, {"--header"},
 	}
 	for _, args := range tests {
 		if _, err := ParseArgs(args); err == nil {
 			t.Errorf("ParseArgs(%q) unexpectedly succeeded", args)
 		}
+	}
+}
+
+func TestParseSeconds(t *testing.T) {
+	d, err := parseSeconds("2.5")
+	if err != nil || d != 2500*time.Millisecond {
+		t.Fatalf("parseSeconds(2.5) = %v, %v", d, err)
+	}
+	d, err = parseSeconds("0")
+	if err != nil || d != 0 {
+		t.Fatalf("parseSeconds(0) = %v, %v", d, err)
+	}
+	for _, in := range []string{"1m", "1u", "1n", "1h2m3", "NaN", "Inf", "+Inf", "-Inf", "1e20"} {
+		if _, err := parseSeconds(in); err == nil {
+			t.Errorf("parseSeconds(%q) unexpectedly succeeded", in)
+		}
+	}
+	if _, err := parseSeconds("-1"); err == nil {
+		t.Fatal("parseSeconds(-1) unexpectedly succeeded")
 	}
 }

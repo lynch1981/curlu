@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -162,6 +163,95 @@ func TestHeaderInjectionRejected(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := Run([]string{"-H", "X-Test: ok\r\nInjected: yes", "http://127.0.0.1/"}, &stdout, &stderr, "test"); code != 2 {
 		t.Fatalf("code = %d", code)
+	}
+}
+
+func TestRequestHostOmitsDefaultPort(t *testing.T) {
+	tests := []struct {
+		raw, want string
+	}{
+		{"http://example.com/path", "example.com"},
+		{"http://example.com:80/path", "example.com"},
+		{"http://example.com:8080/path", "example.com:8080"},
+		{"https://example.com/", "example.com"},
+		{"https://example.com:443/", "example.com"},
+		{"https://example.com:8443/", "example.com:8443"},
+		{"http://127.0.0.1:80/", "127.0.0.1"},
+		{"http://[::1]/", "[::1]"},
+		{"http://[::1]:80/", "[::1]"},
+		{"http://[::1]:8080/", "[::1]:8080"},
+	}
+	for _, tc := range tests {
+		target, exitErr := parseURL(tc.raw)
+		if exitErr != nil {
+			t.Fatalf("parseURL(%q): %v", tc.raw, exitErr)
+		}
+		if got := requestHost(target); got != tc.want {
+			t.Errorf("requestHost(%q) = %q, want %q", tc.raw, got, tc.want)
+		}
+		req, exitErr := buildRequest(target, nil, "test")
+		if exitErr != nil {
+			t.Fatalf("buildRequest(%q): %v", tc.raw, exitErr)
+		}
+		wantLine := "Host: " + tc.want + "\r\n"
+		if !bytes.Contains(req, []byte(wantLine)) {
+			t.Errorf("request for %q missing %q:\n%s", tc.raw, wantLine, req)
+		}
+	}
+}
+
+func TestHeaderReceiveExitCodes(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		url, _ := serveRaw(t, "", 0)
+		var stdout, stderr bytes.Buffer
+		if code := Run([]string{url}, &stdout, &stderr, "test"); code != 52 {
+			t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+		}
+	})
+	t.Run("incomplete", func(t *testing.T) {
+		url, _ := serveRaw(t, "HTTP/1.1 200 OK\r\nX-Test: yes", 0)
+		var stdout, stderr bytes.Buffer
+		if code := Run([]string{url}, &stdout, &stderr, "test"); code != 56 {
+			t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+		}
+	})
+	t.Run("malformed", func(t *testing.T) {
+		url, _ := serveRaw(t, "HTTP/1.1 not-a-status\r\n\r\n", 0)
+		var stdout, stderr bytes.Buffer
+		if code := Run([]string{url}, &stdout, &stderr, "test"); code != 8 {
+			t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+		}
+	})
+}
+
+func TestReadHeaderBlockEnforcesCap(t *testing.T) {
+	payload := bytes.Repeat([]byte("a"), maxResponseHeaderBytes+1)
+	_, err := readHeaderBlock(bufio.NewReader(bytes.NewReader(payload)))
+	if !errors.Is(err, errHeadersTooLarge) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestReadHeaderBlockLongLineWithinCap(t *testing.T) {
+	var payload bytes.Buffer
+	payload.WriteString("HTTP/1.1 200 OK\r\n")
+	payload.Write(bytes.Repeat([]byte("a"), 5000))
+	payload.WriteString("\r\n\r\n")
+	got, err := readHeaderBlock(bufio.NewReader(bytes.NewReader(payload.Bytes())))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, payload.Bytes()) {
+		t.Fatalf("got %d bytes, want %d", len(got), payload.Len())
+	}
+}
+
+func TestOversizedResponseHeader(t *testing.T) {
+	response := "HTTP/1.1 200 OK\r\nX-Big: " + strings.Repeat("a", maxResponseHeaderBytes) + "\r\n\r\n"
+	url, _ := serveRaw(t, response, 0)
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{url}, &stdout, &stderr, "test"); code != 8 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
 	}
 }
 

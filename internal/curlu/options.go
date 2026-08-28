@@ -2,6 +2,8 @@ package curlu
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -156,12 +158,16 @@ func setURL(opts *Options, value string) error {
 }
 
 func parseSeconds(value string) (time.Duration, error) {
-	if strings.HasPrefix(value, "-") {
-		return 0, fmt.Errorf("timeout must not be negative")
-	}
-	d, err := time.ParseDuration(value + "s")
-	if err != nil {
+	seconds, err := strconv.ParseFloat(value, 64)
+	if err != nil || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
 		return 0, fmt.Errorf("invalid timeout %q", value)
 	}
-	return d, nil
+	if seconds < 0 {
+		return 0, fmt.Errorf("timeout must not be negative")
+	}
+	const maxSeconds = float64(math.MaxInt64) / float64(time.Second)
+	if seconds > maxSeconds {
+		return 0, fmt.Errorf("invalid timeout %q", value)
+	}
+	return time.Duration(seconds * float64(time.Second)), nil
 }

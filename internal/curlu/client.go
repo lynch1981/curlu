@@ -12,14 +12,16 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	utls "github.com/refraction-networking/utls"
 )
 
 const maxResponseHeaderBytes = 1 << 20
 
-var dialContext = (&net.Dialer{}).DialContext
+var (
+	dialContext        = (&net.Dialer{}).DialContext
+	errHeadersTooLarge = fmt.Errorf("response headers exceed %d bytes", maxResponseHeaderBytes)
+)
 
 func execute(opts Options, stdout io.Writer, version string) *ExitError {
 	target, exitErr := parseURL(opts.URL)
@@ -81,10 +83,8 @@ func execute(opts Options, stdout io.Writer, version string) *ExitError {
 
 	if deadline, ok := operationCtx.Deadline(); ok {
 		if err := conn.SetDeadline(deadline); err != nil {
-			return fail(2, "failed setting transfer deadline: %v", err)
+			return fail(55, "failed setting transfer deadline: %v", err)
 		}
-	} else {
-		_ = conn.SetDeadline(time.Time{})
 	}
 	if err := writeAll(conn, request); err != nil {
 		if isTimeout(err) || operationCtx.Err() != nil {
@@ -136,14 +136,10 @@ func buildRequest(target *url.URL, values []string, version string) ([]byte, *Ex
 			suppressedDefaults[lowerName] = true
 		}
 	}
-	requestTarget := target.RequestURI()
-	if requestTarget == "" {
-		requestTarget = "/"
-	}
 	var request bytes.Buffer
-	fmt.Fprintf(&request, "GET %s HTTP/1.1\r\n", requestTarget)
+	fmt.Fprintf(&request, "GET %s HTTP/1.1\r\n", target.RequestURI())
 	if !suppressedDefaults["host"] {
-		fmt.Fprintf(&request, "Host: %s\r\n", target.Host)
+		fmt.Fprintf(&request, "Host: %s\r\n", requestHost(target))
 	}
 	if !suppressedDefaults["user-agent"] {
 		fmt.Fprintf(&request, "User-Agent: curlu/%s\r\n", safeVersion(version))
@@ -159,6 +155,18 @@ func buildRequest(target *url.URL, values []string, version string) ([]byte, *Ex
 	}
 	request.WriteString("\r\n")
 	return request.Bytes(), nil
+}
+
+func requestHost(target *url.URL) string {
+	host := target.Hostname()
+	port := target.Port()
+	if port == "" || (target.Scheme == "http" && port == "80") || (target.Scheme == "https" && port == "443") {
+		if strings.Contains(host, ":") {
+			return "[" + host + "]"
+		}
+		return host
+	}
+	return net.JoinHostPort(host, port)
 }
 
 func parseRequestHeader(value string) (requestHeader, error) {
@@ -229,21 +237,16 @@ func writeAll(writer io.Writer, data []byte) error {
 func readResponse(conn net.Conn, stdout io.Writer, include bool, ctx context.Context) *ExitError {
 	reader := bufio.NewReader(conn)
 	request := &http.Request{Method: http.MethodGet}
-	for {
-		headerBlock, err := readHeaderBlock(reader)
-		if err != nil {
-			if isTimeout(err) || ctx.Err() != nil {
-				return fail(28, "operation timed out")
-			}
-			if errors.Is(err, io.EOF) && len(headerBlock) == 0 {
-				return fail(52, "empty reply from server")
-			}
-			return fail(8, "invalid HTTP response: %v", err)
+	var body io.Closer
+	defer func() {
+		if body != nil {
+			_ = body.Close()
 		}
-		responseReader := bufio.NewReader(io.MultiReader(bytes.NewReader(headerBlock), reader))
-		response, err := http.ReadResponse(responseReader, request)
+	}()
+	for {
+		headerBlock, response, next, err := readNextResponse(reader, request)
 		if err != nil {
-			return fail(8, "invalid HTTP response: %v", err)
+			return receiveError(err, ctx)
 		}
 		if response.StatusCode >= 100 && response.StatusCode < 200 && response.StatusCode != http.StatusSwitchingProtocols {
 			_ = response.Body.Close()
@@ -252,14 +255,14 @@ func readResponse(conn net.Conn, stdout io.Writer, include bool, ctx context.Con
 					return fail(23, "failed writing output")
 				}
 			}
-			reader = responseReader
+			reader = next
 			continue
 		}
 		if response.StatusCode == http.StatusSwitchingProtocols {
 			_ = response.Body.Close()
 			return fail(8, "protocol upgrades are not supported")
 		}
-		defer response.Body.Close()
+		body = response.Body
 		if include {
 			if err := writeAll(stdout, headerBlock); err != nil {
 				return fail(23, "failed writing output")
@@ -283,19 +286,68 @@ func readResponse(conn net.Conn, stdout io.Writer, include bool, ctx context.Con
 	}
 }
 
+type headerBlockError struct {
+	n   int
+	err error
+}
+
+func (e *headerBlockError) Error() string { return e.err.Error() }
+func (e *headerBlockError) Unwrap() error { return e.err }
+
+func readNextResponse(reader *bufio.Reader, request *http.Request) ([]byte, *http.Response, *bufio.Reader, error) {
+	headerBlock, err := readHeaderBlock(reader)
+	if err != nil {
+		return headerBlock, nil, reader, &headerBlockError{n: len(headerBlock), err: err}
+	}
+	next := bufio.NewReader(io.MultiReader(bytes.NewReader(headerBlock), reader))
+	response, err := http.ReadResponse(next, request)
+	if err != nil {
+		return headerBlock, nil, next, err
+	}
+	return headerBlock, response, next, nil
+}
+
+func receiveError(err error, ctx context.Context) *ExitError {
+	if isTimeout(err) || ctx.Err() != nil {
+		return fail(28, "operation timed out")
+	}
+	var headerErr *headerBlockError
+	if errors.As(err, &headerErr) {
+		if errors.Is(headerErr.err, errHeadersTooLarge) {
+			return fail(8, "invalid HTTP response: %v", headerErr.err)
+		}
+		if errors.Is(headerErr.err, io.EOF) && headerErr.n == 0 {
+			return fail(52, "empty reply from server")
+		}
+		return fail(56, "failed receiving response: %v", headerErr.err)
+	}
+	return fail(8, "invalid HTTP response: %v", err)
+}
+
 func readHeaderBlock(reader *bufio.Reader) ([]byte, error) {
 	var block bytes.Buffer
-	for block.Len() <= maxResponseHeaderBytes {
-		line, err := reader.ReadBytes('\n')
-		block.Write(line)
+	lineStart := 0
+	for {
+		if block.Len() >= maxResponseHeaderBytes {
+			return nil, errHeadersTooLarge
+		}
+		fragment, err := reader.ReadSlice('\n')
+		if block.Len()+len(fragment) > maxResponseHeaderBytes {
+			return nil, errHeadersTooLarge
+		}
+		block.Write(fragment)
+		if err == bufio.ErrBufferFull {
+			continue
+		}
 		if err != nil {
 			return block.Bytes(), err
 		}
+		line := block.Bytes()[lineStart:]
 		if bytes.Equal(line, []byte("\r\n")) || bytes.Equal(line, []byte("\n")) {
 			return block.Bytes(), nil
 		}
+		lineStart = block.Len()
 	}
-	return block.Bytes(), fmt.Errorf("response headers exceed %d bytes", maxResponseHeaderBytes)
 }
 
 type trackingWriter struct {
