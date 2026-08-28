@@ -14,6 +14,7 @@ type Options struct {
 	Include        bool
 	Silent         bool
 	ShowError      bool
+	Verbose        bool
 	Headers        []string
 	ConnectTimeout time.Duration
 	MaxTime        time.Duration
@@ -66,6 +67,11 @@ func ParseArgs(args []string) (Options, error) {
 					return opts, optionValueError(name)
 				}
 				opts.ShowError = true
+			case "verbose":
+				if hasValue {
+					return opts, optionValueError(name)
+				}
+				opts.Verbose = true
 			case "connect-timeout", "max-time":
 				var err error
 				value, i, err = optionArgument(args, i, name, value, hasValue)
@@ -139,6 +145,8 @@ func ParseArgs(args []string) (Options, error) {
 				opts.Silent = true
 			case 'S':
 				opts.ShowError = true
+			case 'v':
+				opts.Verbose = true
 			case 'h':
 				opts.Help = true
 			case 'V':

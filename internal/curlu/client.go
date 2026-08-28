@@ -61,6 +61,9 @@ func execute(opts Options, stdout, stderr io.Writer, version string) *ExitError 
 		return connectFailure(err)
 	}
 	defer conn.Close()
+	tr := newTrace(stderr, opts.Verbose)
+	tr.connected(target.Hostname(), conn)
+	defer tr.info("Closing connection")
 
 	proto := ""
 	if target.Scheme == "https" {
@@ -68,7 +71,7 @@ func execute(opts Options, stdout, stderr io.Writer, version string) *ExitError 
 		if net.ParseIP(target.Hostname()) == nil {
 			serverName = target.Hostname()
 		}
-		tlsConn, negotiated, exitErr := handshakeUTLS(conn, opts, serverName, stderr, connectCtx)
+		tlsConn, negotiated, exitErr := handshakeUTLS(conn, opts, serverName, stderr, connectCtx, tr)
 		if exitErr != nil {
 			return exitErr
 		}
@@ -83,17 +86,18 @@ func execute(opts Options, stdout, stderr io.Writer, version string) *ExitError 
 		}
 	}
 	if proto == "h2" {
-		return roundTripHTTP2(conn, target, headers, suppressedDefaults, stdout, opts.Include, version, operationCtx)
+		return roundTripHTTP2(conn, target, headers, suppressedDefaults, stdout, opts.Include, version, operationCtx, tr)
 	}
 
 	request := serializeHTTP1(target, headers, suppressedDefaults, version)
+	tr.dump("> ", request)
 	if err := writeAll(conn, request); err != nil {
 		if isTimeout(err) || operationCtx.Err() != nil {
 			return fail(28, "operation timed out")
 		}
 		return fail(55, "failed sending request: %v", err)
 	}
-	return readResponse(conn, stdout, opts.Include, operationCtx)
+	return readResponse(conn, stdout, opts.Include, operationCtx, tr)
 }
 
 func parseURL(raw string) (*url.URL, *ExitError) {
@@ -247,7 +251,7 @@ func writeAll(writer io.Writer, data []byte) error {
 	return nil
 }
 
-func readResponse(conn net.Conn, stdout io.Writer, include bool, ctx context.Context) *ExitError {
+func readResponse(conn net.Conn, stdout io.Writer, include bool, ctx context.Context, tr trace) *ExitError {
 	reader := bufio.NewReader(conn)
 	request := &http.Request{Method: http.MethodGet}
 	var body io.Closer
@@ -261,6 +265,7 @@ func readResponse(conn net.Conn, stdout io.Writer, include bool, ctx context.Con
 		if err != nil {
 			return receiveError(err, ctx)
 		}
+		tr.dump("< ", headerBlock)
 		if response.StatusCode >= 100 && response.StatusCode < 200 && response.StatusCode != http.StatusSwitchingProtocols {
 			_ = response.Body.Close()
 			if include {

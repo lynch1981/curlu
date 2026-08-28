@@ -14,8 +14,9 @@ import (
 	"golang.org/x/net/http2"
 )
 
-func roundTripHTTP2(conn net.Conn, target *url.URL, headers []requestHeader, suppressed map[string]bool, stdout io.Writer, include bool, version string, ctx context.Context) *ExitError {
+func roundTripHTTP2(conn net.Conn, target *url.URL, headers []requestHeader, suppressed map[string]bool, stdout io.Writer, include bool, version string, ctx context.Context, tr trace) *ExitError {
 	req := buildHTTP2Request(target, headers, suppressed, version).WithContext(ctx)
+	tr.dump("> ", formatHTTP2VerboseRequest(req))
 
 	transport := &http2.Transport{
 		DisableCompression: true,
@@ -32,9 +33,11 @@ func roundTripHTTP2(conn net.Conn, target *url.URL, headers []requestHeader, sup
 		return http2ReceiveError(err, ctx)
 	}
 	defer response.Body.Close()
+	headerBlock := formatHTTP2Headers(response)
+	tr.dump("< ", headerBlock)
 
 	if include {
-		if err := writeAll(stdout, formatHTTP2Headers(response)); err != nil {
+		if err := writeAll(stdout, headerBlock); err != nil {
 			return fail(23, "failed writing output")
 		}
 	}
@@ -101,6 +104,31 @@ func hopByHopHeader(name string) bool {
 	default:
 		return false
 	}
+}
+
+func formatHTTP2VerboseRequest(req *http.Request) []byte {
+	var block strings.Builder
+	fmt.Fprintf(&block, "GET %s HTTP/2\r\nHost: %s\r\n", req.URL.RequestURI(), req.Host)
+	writeHeader := func(name string) {
+		for _, value := range req.Header[name] {
+			fmt.Fprintf(&block, "%s: %s\r\n", name, value)
+		}
+	}
+	writeHeader("User-Agent")
+	writeHeader("Accept")
+	names := make([]string, 0, len(req.Header))
+	for name := range req.Header {
+		if name == "User-Agent" || name == "Accept" {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		writeHeader(name)
+	}
+	block.WriteString("\r\n")
+	return []byte(block.String())
 }
 
 func formatHTTP2Headers(response *http.Response) []byte {

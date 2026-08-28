@@ -11,13 +11,13 @@ import (
 
 func TestParseArgsExactWorkflow(t *testing.T) {
 	opts, err := ParseArgs([]string{
-		"-i", "-H", "User-Agent:", "-HAccept:", "-H", "Host:", "-sS",
+		"-iv", "-H", "User-Agent:", "-HAccept:", "-H", "Host:", "-sS",
 		"--connect-timeout", "2.5", "http://127.0.0.1:8080/health", "--max-time=10",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !opts.Include || !opts.Silent || !opts.ShowError {
+	if !opts.Include || !opts.Silent || !opts.ShowError || !opts.Verbose {
 		t.Fatalf("boolean options not parsed: %+v", opts)
 	}
 	if opts.ConnectTimeout != 2500*time.Millisecond || opts.MaxTime != 10*time.Second {
@@ -119,6 +119,7 @@ func TestParseArgsErrors(t *testing.T) {
 		{"--utls-hello", "HelloChrome_999", "https://example.test"},
 		{"--utls-hello", "Chrome-102", "https://example.test"}, {"--utls-cipher-append"},
 		{"--utls-hello-list=yes"}, {"--utls-info=yes", "https://example.test"},
+		{"--verbose=yes", "https://example.test"},
 	}
 	for _, cipher := range []string{"0x0", "0X1234", "1234", "0x12345", "0xzzzz", "-0x0001"} {
 		tests = append(tests, []string{"--utls-cipher-append", cipher, "https://example.test"})

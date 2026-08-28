@@ -15,6 +15,7 @@ Options:
   -H, --header <header>         Add, replace, or suppress a request header
   -s, --silent                  Suppress error diagnostics
   -S, --show-error              Show errors when used with --silent
+  -v, --verbose                 Show connection and header trace on stderr
       --connect-timeout <secs>  Limit DNS, TCP, and TLS connection time
   -m, --max-time <secs>         Limit the complete transfer time
       --utls-hello <id>         Select a uTLS ClientHello ID (HelloChrome_120)

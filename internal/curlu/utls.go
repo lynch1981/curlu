@@ -2,6 +2,7 @@ package curlu
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -87,7 +88,7 @@ func utlsHelloNames() []string {
 	return names
 }
 
-func handshakeUTLS(conn net.Conn, opts Options, serverName string, stderr io.Writer, ctx context.Context) (net.Conn, string, *ExitError) {
+func handshakeUTLS(conn net.Conn, opts Options, serverName string, stderr io.Writer, ctx context.Context, tr trace) (net.Conn, string, *ExitError) {
 	helloID := utls.HelloGolang
 	if opts.UTLSHello.Client != "" {
 		helloID = opts.UTLSHello
@@ -122,12 +123,17 @@ func handshakeUTLS(conn net.Conn, opts Options, serverName string, stderr io.Wri
 		}
 		return nil, "", fail(35, "TLS handshake failed: %v", err)
 	}
-	proto := tlsConn.ConnectionState().NegotiatedProtocol
-	switch proto {
+	state := tlsConn.ConnectionState()
+	tr.info("SSL connection using %s / %s", tls.VersionName(state.Version), tls.CipherSuiteName(state.CipherSuite))
+	if state.NegotiatedProtocol != "" {
+		tr.info("ALPN: server accepted %s", state.NegotiatedProtocol)
+	}
+	tr.info("SSL certificate verification is disabled")
+	switch state.NegotiatedProtocol {
 	case "", "http/1.1", "h2":
-		return tlsConn, proto, nil
+		return tlsConn, state.NegotiatedProtocol, nil
 	default:
-		return nil, proto, fail(1, "server negotiated protocol %q; only HTTP/1.1 and HTTP/2 are supported", proto)
+		return nil, state.NegotiatedProtocol, fail(1, "server negotiated protocol %q; only HTTP/1.1 and HTTP/2 are supported", state.NegotiatedProtocol)
 	}
 }
 

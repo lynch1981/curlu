@@ -23,6 +23,7 @@ Supported options:
 - `-H`, `--header` (repeatable)
 - `-s`, `--silent`
 - `-S`, `--show-error`
+- `-v`, `--verbose`
 - `--connect-timeout <seconds>`
 - `-m`, `--max-time <seconds>`
 - `--utls-hello <id>`
@@ -87,7 +88,9 @@ curl without `--fail`.
 Response data is written to stdout. `-i` includes the received status line and
 headers (`HTTP/2 200` when the transfer used HTTP/2). Errors use
 `curlu: (N) message` on stderr with the corresponding curl exit code. `-s`
-suppresses diagnostics and `-S` restores them. curlu does not implement a
+suppresses diagnostics and `-S` restores them. `-v` writes a curl-style
+connection and header trace to stderr (`*` info, `>` sent headers, `<`
+received headers) even when `-s` is set. curlu does not implement a
 progress meter.
 
 ## Build and test
