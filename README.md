@@ -95,14 +95,14 @@ progress meter.
 
 ## Build and test
 
-uTLS v1.8.2 requires Go 1.24.
+uTLS v1.8.2 requires Go 1.24.0.
 
 ```sh
 ./build.sh
 go test -race ./...
 ```
 
-The build script requires Go 1.24 or newer on `PATH`, embeds the current Git
+The build script requires Go 1.24.0 or newer on `PATH`, embeds the current Git
 revision in the binary, and writes the executable to `./curlu`.
 
 ## Relevant exit codes

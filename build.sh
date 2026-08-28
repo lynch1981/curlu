@@ -5,7 +5,7 @@ set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
 if ! command -v go >/dev/null 2>&1; then
-  printf 'Error: Go 1.24 or newer is required. Install it from https://go.dev/dl/\n' >&2
+  printf 'Error: Go 1.24.0 or newer is required. Install it from https://go.dev/dl/\n' >&2
   exit 1
 fi
 
@@ -18,7 +18,7 @@ fi
 go_major="${BASH_REMATCH[1]}"
 go_minor="${BASH_REMATCH[2]}"
 if ((go_major < 1 || (go_major == 1 && go_minor < 24))); then
-  printf 'Error: Go 1.24 or newer is required; found %s\n' "${go_version}" >&2
+  printf 'Error: Go 1.24.0 or newer is required; found %s\n' "${go_version}" >&2
   exit 1
 fi
 
