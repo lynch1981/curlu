@@ -3,6 +3,7 @@ package curlu
 import (
 	"fmt"
 	"io"
+	"strings"
 )
 
 const helpText = `Usage: curlu [options...] <url>
@@ -16,6 +17,10 @@ Options:
   -S, --show-error              Show errors when used with --silent
       --connect-timeout <secs>  Limit DNS, TCP, and TLS connection time
   -m, --max-time <secs>         Limit the complete transfer time
+      --utls-hello <id>         Select a uTLS ClientHello ID (HelloChrome_120)
+      --utls-hello-list         List supported uTLS ClientHello IDs
+      --utls-cipher-append <id> Append a 0xNNNN cipher ID (repeatable)
+      --utls-info               Print EXPECTED_CIPHER_COUNT to stderr
   -h, --help                    Show this help
   -V, --version                 Show version information
 
@@ -41,7 +46,13 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 		}
 		return 0
 	}
-	exitErr := execute(opts, stdout, version)
+	if opts.UTLSHelloList {
+		if _, err := fmt.Fprintln(stdout, strings.Join(utlsHelloNames(), "\n")); err != nil {
+			return report(stderr, opts, 23, "failed writing output")
+		}
+		return 0
+	}
+	exitErr := execute(opts, stdout, stderr, version)
 	if exitErr == nil {
 		return 0
 	}

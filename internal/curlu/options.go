@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	utls "github.com/refraction-networking/utls"
 )
 
 type Options struct {
@@ -15,6 +17,10 @@ type Options struct {
 	Headers        []string
 	ConnectTimeout time.Duration
 	MaxTime        time.Duration
+	UTLSHello      utls.ClientHelloID
+	UTLSCiphers    []uint16
+	UTLSHelloList  bool
+	UTLSInfo       bool
 	URL            string
 	Help           bool
 	Version        bool
@@ -75,6 +81,38 @@ func ParseArgs(args []string) (Options, error) {
 				} else {
 					opts.MaxTime = duration
 				}
+			case "utls-hello":
+				var err error
+				value, i, err = optionArgument(args, i, name, value, hasValue)
+				if err != nil {
+					return opts, err
+				}
+				id, _, ok := resolveUTLSHello(value)
+				if !ok {
+					return opts, fmt.Errorf("option --%s: unknown ClientHello ID %q", name, value)
+				}
+				opts.UTLSHello = id
+			case "utls-cipher-append":
+				var err error
+				value, i, err = optionArgument(args, i, name, value, hasValue)
+				if err != nil {
+					return opts, err
+				}
+				cipher, err := parseCipherID(value)
+				if err != nil {
+					return opts, fmt.Errorf("option --%s: %w", name, err)
+				}
+				opts.UTLSCiphers = append(opts.UTLSCiphers, cipher)
+			case "utls-hello-list":
+				if hasValue {
+					return opts, optionValueError(name)
+				}
+				opts.UTLSHelloList = true
+			case "utls-info":
+				if hasValue {
+					return opts, optionValueError(name)
+				}
+				opts.UTLSInfo = true
 			case "help":
 				if hasValue {
 					return opts, optionValueError(name)
@@ -129,10 +167,21 @@ func ParseArgs(args []string) (Options, error) {
 			}
 		}
 	}
-	if !opts.Help && !opts.Version && opts.URL == "" {
+	if !opts.Help && !opts.Version && !opts.UTLSHelloList && opts.URL == "" {
 		return opts, fmt.Errorf("no URL specified")
 	}
 	return opts, nil
+}
+
+func parseCipherID(value string) (uint16, error) {
+	if len(value) != 6 || value[:2] != "0x" {
+		return 0, fmt.Errorf("invalid cipher ID %q (expected 0xNNNN)", value)
+	}
+	cipher, err := strconv.ParseUint(value[2:], 16, 16)
+	if err != nil {
+		return 0, fmt.Errorf("invalid cipher ID %q (expected 0xNNNN)", value)
+	}
+	return uint16(cipher), nil
 }
 
 func optionArgument(args []string, index int, name, value string, hasValue bool) (string, int, error) {

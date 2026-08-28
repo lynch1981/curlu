@@ -25,6 +25,10 @@ Supported options:
 - `-S`, `--show-error`
 - `--connect-timeout <seconds>`
 - `-m`, `--max-time <seconds>`
+- `--utls-hello <id>`
+- `--utls-hello-list`
+- `--utls-cipher-append <0xNNNN>` (repeatable)
+- `--utls-info`
 - `-h`, `--help`
 - `-V`, `--version`
 
@@ -33,6 +37,43 @@ timeout option uses its final value.
 
 `-H 'Name:'` suppresses a header, including the normally generated `Host`,
 `User-Agent`, and `Accept` headers. Header names are matched case-insensitively.
+
+## uTLS controls
+
+HTTPS uses the `HelloGolang` ClientHello by default. `--utls-hello` selects any
+ClientHello ID reported by `--utls-hello-list`; matching is case-insensitive.
+IDs are the uTLS constant names (`HelloChrome_120`), not a version number and
+not names such as `Chrome-120`. The list includes every distinct
+preset in the pinned uTLS release except `HelloCustom`, including Auto aliases
+and experimental or upstream-marked incompatible presets. Those presets are
+exposed intentionally and may fail to handshake with some servers.
+
+```sh
+curlu --utls-hello HelloChrome_133 https://example.com/
+curlu --utls-hello-list
+```
+
+A selected parrot keeps its own ALPN. `HelloGolang` continues to advertise
+`http/1.1` only. curlu speaks HTTP/1.1, so if the server negotiates another
+protocol (for example `h2`), the transfer fails.
+
+`--utls-cipher-append` appends one cipher-suite ID to the selected ClientHello.
+The value must contain exactly four hexadecimal digits after a lowercase `0x`.
+Repeating the option preserves order and duplicates, allowing exact wire-level
+control. Arbitrary values are accepted; if a server selects a cipher that uTLS
+cannot implement, the TLS handshake will fail.
+
+`--utls-info` writes one machine-readable line to stderr after the final
+ClientHello is built and before the handshake:
+
+```text
+EXPECTED_CIPHER_COUNT=17
+```
+
+The count includes appended values, duplicates, and SCSV entries, but excludes
+GREASE cipher values. It is printed even with `--silent`. The Hello selector,
+cipher append, and info options require an `https://` URL; using them with
+`http://` is an invalid invocation.
 
 ## Compatibility boundaries
 

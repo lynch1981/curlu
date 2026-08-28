@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -125,6 +127,204 @@ func TestHTTPSAcceptsSelfSignedCertificate(t *testing.T) {
 	}
 	if stdout.String() != "secure" {
 		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestUTLSClientHelloOptions(t *testing.T) {
+	hello := make(chan *tls.ClientHelloInfo, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "secure")
+	}))
+	server.EnableHTTP2 = false
+	server.TLS = &tls.Config{
+		GetConfigForClient: func(info *tls.ClientHelloInfo) (*tls.Config, error) {
+			hello <- info
+			return nil, nil
+		},
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"-s", "--utls-hello", "HelloChrome_102",
+		"--utls-cipher-append", "0x1234",
+		"--utls-cipher-append", "0x00ff",
+		"--utls-info", server.URL,
+	}, &stdout, &stderr, "test")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "secure" {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	info := <-hello
+	if want := []string{"h2", "http/1.1"}; !reflect.DeepEqual(info.SupportedProtos, want) {
+		t.Fatalf("ALPN = %q, want %q", info.SupportedProtos, want)
+	}
+	if len(info.CipherSuites) < 2 {
+		t.Fatalf("cipher suites = %#v", info.CipherSuites)
+	}
+	if got, want := info.CipherSuites[len(info.CipherSuites)-2:], []uint16{0x1234, 0x00ff}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("appended ciphers = %#v, want %#v", got, want)
+	}
+	if want := fmt.Sprintf("EXPECTED_CIPHER_COUNT=%d\n", countNonGREASE(info.CipherSuites)); stderr.String() != want {
+		t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+	}
+}
+
+func TestUTLSHelloGolangCipherAppend(t *testing.T) {
+	hello := make(chan *tls.ClientHelloInfo, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	server.EnableHTTP2 = false
+	server.TLS = &tls.Config{
+		GetConfigForClient: func(info *tls.ClientHelloInfo) (*tls.Config, error) {
+			hello <- info
+			return nil, nil
+		},
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"-s", "--utls-cipher-append", "0x1234", "--utls-cipher-append", "0x00ff",
+		"--utls-info", server.URL,
+	}, &stdout, &stderr, "test")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "ok" {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	info := <-hello
+	if want := []string{"http/1.1"}; !reflect.DeepEqual(info.SupportedProtos, want) {
+		t.Fatalf("ALPN = %q, want %q", info.SupportedProtos, want)
+	}
+	if got, want := info.CipherSuites[len(info.CipherSuites)-2:], []uint16{0x1234, 0x00ff}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("appended ciphers = %#v, want %#v", got, want)
+	}
+	if want := fmt.Sprintf("EXPECTED_CIPHER_COUNT=%d\n", countNonGREASE(info.CipherSuites)); stderr.String() != want {
+		t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+	}
+}
+
+func TestUTLSParrotKeepsALPN(t *testing.T) {
+	hello := make(chan *tls.ClientHelloInfo, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server.EnableHTTP2 = false
+	server.TLS = &tls.Config{
+		GetConfigForClient: func(info *tls.ClientHelloInfo) (*tls.Config, error) {
+			hello <- info
+			return nil, nil
+		},
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	_ = Run([]string{"-s", "--utls-hello", "HelloChrome_120", server.URL}, &stdout, &stderr, "test")
+	select {
+	case info := <-hello:
+		if want := []string{"h2", "http/1.1"}; !reflect.DeepEqual(info.SupportedProtos, want) {
+			t.Fatalf("ALPN = %q, want %q", info.SupportedProtos, want)
+		}
+	default:
+		t.Fatalf("missing ClientHello, stderr = %q", stderr.String())
+	}
+}
+
+func TestUTLSRejectsHTTP2Negotiation(t *testing.T) {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server.EnableHTTP2 = false
+	server.TLS = &tls.Config{NextProtos: []string{"h2"}}
+	server.StartTLS()
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--utls-hello", "HelloChrome_102", server.URL}, &stdout, &stderr, "test"); code != 1 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), `server negotiated protocol "h2"`) {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestUTLSInfoDoesNotCountAppendedGREASE(t *testing.T) {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	server.EnableHTTP2 = false
+	server.StartTLS()
+	defer server.Close()
+
+	run := func(extra ...string) int {
+		args := []string{"--utls-hello", "HelloFirefox_105", "--utls-info"}
+		args = append(args, extra...)
+		args = append(args, server.URL)
+		var stdout, stderr bytes.Buffer
+		if code := Run(args, &stdout, &stderr, "test"); code != 0 {
+			t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+		}
+		var count int
+		if _, err := fmt.Sscanf(stderr.String(), "EXPECTED_CIPHER_COUNT=%d\n", &count); err != nil {
+			t.Fatalf("stderr = %q: %v", stderr.String(), err)
+		}
+		return count
+	}
+	base := run()
+	if got := run("--utls-cipher-append", "0x0a0a", "--utls-cipher-append", "0x1234", "--utls-cipher-append", "0x1234"); got != base+2 {
+		t.Fatalf("count = %d, want %d", got, base+2)
+	}
+}
+
+func TestUTLSInfoPrecedesHandshakeFailure(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		conn, err := listener.Accept()
+		if err == nil {
+			_ = conn.Close()
+		}
+	}()
+
+	var stdout, stderr bytes.Buffer
+	url := "https://" + listener.Addr().String() + "/"
+	if code := Run([]string{"-s", "--utls-info", url}, &stdout, &stderr, "test"); code != 35 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.HasPrefix(stderr.String(), "EXPECTED_CIPHER_COUNT=") || strings.Count(stderr.String(), "\n") != 1 {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestUTLSOptionsRequireHTTPS(t *testing.T) {
+	for _, args := range [][]string{
+		{"--utls-hello", "HelloChrome_102", "http://example.test/"},
+		{"--utls-cipher-append", "0x1234", "http://example.test/"},
+		{"--utls-info", "http://example.test/"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := Run(args, &stdout, &stderr, "test"); code != 2 {
+			t.Errorf("Run(%q) code = %d, stderr = %q", args, code, stderr.String())
+		}
+	}
+}
+
+func TestUTLSHelloList(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--utls-hello-list"}, &stdout, &stderr, "test"); code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	want := strings.Join(utlsHelloNames(), "\n") + "\n"
+	if stdout.String() != want {
+		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+	}
+	if !strings.Contains(stdout.String(), "HelloChrome_120\n") {
+		t.Fatalf("list missing HelloChrome_120:\n%s", stdout.String())
 	}
 }
 

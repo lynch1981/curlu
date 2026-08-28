@@ -2,8 +2,11 @@ package curlu
 
 import (
 	"reflect"
+	"sort"
 	"testing"
 	"time"
+
+	utls "github.com/refraction-networking/utls"
 )
 
 func TestParseArgsExactWorkflow(t *testing.T) {
@@ -39,15 +42,103 @@ func TestParseArgsLastTimeoutWins(t *testing.T) {
 	}
 }
 
+func TestParseArgsUTLSOptions(t *testing.T) {
+	opts, err := ParseArgs([]string{
+		"--utls-hello", "hellofirefox_105",
+		"--utls-hello=HelloChrome_102",
+		"--utls-cipher-append", "0x1234",
+		"--utls-cipher-append=0x00fF",
+		"--utls-info",
+		"https://example.test/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.UTLSHello != utls.HelloChrome_102 {
+		t.Fatalf("UTLSHello = %#v", opts.UTLSHello)
+	}
+	if want := []uint16{0x1234, 0x00ff}; !reflect.DeepEqual(opts.UTLSCiphers, want) {
+		t.Fatalf("UTLSCiphers = %#v, want %#v", opts.UTLSCiphers, want)
+	}
+	if !opts.UTLSInfo {
+		t.Fatal("UTLSInfo is false")
+	}
+}
+
+func TestParseArgsUTLSHelloListNeedsNoURL(t *testing.T) {
+	opts, err := ParseArgs([]string{"--utls-hello-list"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.UTLSHelloList {
+		t.Fatal("UTLSHelloList is false")
+	}
+}
+
+func TestUTLSHelloCatalog(t *testing.T) {
+	names := utlsHelloNames()
+	if len(names) != 49 {
+		t.Fatalf("len(names) = %d, want 49", len(names))
+	}
+	if !sort.StringsAreSorted(names) {
+		t.Fatalf("names are not sorted: %q", names)
+	}
+	seen := make(map[string]bool, len(names))
+	for _, name := range names {
+		if name == "HelloCustom" || name == "Custom-0" {
+			t.Fatalf("%q must not be exposed", name)
+		}
+		if seen[name] {
+			t.Fatalf("duplicate ClientHello ID %q", name)
+		}
+		seen[name] = true
+		if _, canonical, ok := resolveUTLSHello(name); !ok || canonical != name {
+			t.Fatalf("resolveUTLSHello(%q) = %q, %v", name, canonical, ok)
+		}
+	}
+	for _, want := range []string{
+		"HelloChrome_133", "HelloChrome_Auto", "HelloChrome_106_Shuffle",
+		"HelloEdge_106", "HelloGolang", "HelloRandomizedNoALPN",
+	} {
+		if !seen[want] {
+			t.Errorf("catalog missing %q", want)
+		}
+	}
+	for _, name := range []string{"Chrome-102", "Chrome-120", "120", "Golang-0"} {
+		if _, _, ok := resolveUTLSHello(name); ok {
+			t.Errorf("resolveUTLSHello(%q) unexpectedly succeeded", name)
+		}
+	}
+}
+
 func TestParseArgsErrors(t *testing.T) {
 	tests := [][]string{
 		{}, {"--unknown", "http://example.test"}, {"-m", "-1", "http://example.test"},
 		{"-m", "1m", "http://example.test"}, {"--max-time", "NaN", "http://example.test"},
-		{"http://one.test", "http://two.test"}, {"--header"},
+		{"http://one.test", "http://two.test"}, {"--header"}, {"--utls-hello"},
+		{"--utls-hello", "HelloChrome_999", "https://example.test"},
+		{"--utls-hello", "Chrome-102", "https://example.test"}, {"--utls-cipher-append"},
+		{"--utls-hello-list=yes"}, {"--utls-info=yes", "https://example.test"},
+	}
+	for _, cipher := range []string{"0x0", "0X1234", "1234", "0x12345", "0xzzzz", "-0x0001"} {
+		tests = append(tests, []string{"--utls-cipher-append", cipher, "https://example.test"})
 	}
 	for _, args := range tests {
 		if _, err := ParseArgs(args); err == nil {
 			t.Errorf("ParseArgs(%q) unexpectedly succeeded", args)
+		}
+	}
+}
+
+func TestIsGREASE(t *testing.T) {
+	for _, value := range []uint16{0x0a0a, 0x1a1a, 0xfafa} {
+		if !isGREASE(value) {
+			t.Errorf("isGREASE(%#04x) = false", value)
+		}
+	}
+	for _, value := range []uint16{0x0000, 0x00ff, 0x0a1a, 0x1a0a, 0xffff} {
+		if isGREASE(value) {
+			t.Errorf("isGREASE(%#04x) = true", value)
 		}
 	}
 }

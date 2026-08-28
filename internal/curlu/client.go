@@ -12,8 +12,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-
-	utls "github.com/refraction-networking/utls"
 )
 
 const maxResponseHeaderBytes = 1 << 20
@@ -23,10 +21,13 @@ var (
 	errHeadersTooLarge = fmt.Errorf("response headers exceed %d bytes", maxResponseHeaderBytes)
 )
 
-func execute(opts Options, stdout io.Writer, version string) *ExitError {
+func execute(opts Options, stdout, stderr io.Writer, version string) *ExitError {
 	target, exitErr := parseURL(opts.URL)
 	if exitErr != nil {
 		return exitErr
+	}
+	if target.Scheme != "https" && (opts.UTLSHello.Client != "" || len(opts.UTLSCiphers) > 0 || opts.UTLSInfo) {
+		return fail(2, "uTLS options require an HTTPS URL")
 	}
 	request, exitErr := buildRequest(target, opts.Headers, version)
 	if exitErr != nil {
@@ -66,16 +67,9 @@ func execute(opts Options, stdout io.Writer, version string) *ExitError {
 		if net.ParseIP(target.Hostname()) == nil {
 			serverName = target.Hostname()
 		}
-		tlsConn := utls.UClient(conn, &utls.Config{
-			ServerName:         serverName,
-			InsecureSkipVerify: true, // Deliberate curlu v1 policy.
-			NextProtos:         []string{"http/1.1"},
-		}, utls.HelloGolang)
-		if err := tlsConn.HandshakeContext(connectCtx); err != nil {
-			if isTimeout(err) || connectCtx.Err() != nil {
-				return fail(28, "connection timed out")
-			}
-			return fail(35, "TLS handshake failed: %v", err)
+		tlsConn, exitErr := handshakeUTLS(conn, opts, serverName, stderr, connectCtx)
+		if exitErr != nil {
+			return exitErr
 		}
 		conn = tlsConn
 	}
