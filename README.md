@@ -1,9 +1,10 @@
 # curlu
 
-`curlu` is a focused HTTP/HTTPS command-line client written in Go. HTTPS
-connections use [uTLS](https://github.com/refraction-networking/utls), while
-the command-line interface and process behavior match the supported curl
-workflow.
+`curlu` is a focused HTTP/HTTPS command-line client written in Go. It is
+built to produce a stable JA4 TLS ClientHello for Test::Nginx, so the Go
+toolchain and [uTLS](https://github.com/refraction-networking/utls) release
+are pinned exactly. The command-line interface and process behavior match
+the supported curl workflow.
 
 > [!WARNING]
 > HTTPS certificate and hostname verification is always disabled in v1.
@@ -118,16 +119,20 @@ progress meter.
 
 ## Build and test
 
-uTLS v1.8.2 requires Go 1.24.0.
+Go 1.24.0 and uTLS v1.8.2 are pinned so JA4 ClientHello fingerprints stay
+reproducible. Bumping either can change `HelloGolang` and parrot JA4 values
+and must be paired with catalog and expected-fingerprint updates.
+
+`./build.sh` sets `GOTOOLCHAIN=go1.24.0` from the `go` line in `go.mod`
+and refuses any other compiler. Tests need the same toolchain:
 
 ```sh
 ./build.sh
-go test -race ./...
+GOTOOLCHAIN=go1.24.0 go test -race ./...
 ```
 
-The build script requires Go 1.24.0 or newer on `PATH`, embeds the current Git
-revision in the binary, writes the executable to `./curlu`, and creates a
-`./curl` symlink pointing at it.
+The build script embeds the current Git revision in the binary, writes the
+executable to `./curlu`, and creates a `./curl` symlink pointing at it.
 
 ## Relevant exit codes
 

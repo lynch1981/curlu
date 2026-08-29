@@ -5,20 +5,25 @@ set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
 if ! command -v go >/dev/null 2>&1; then
-  printf 'Error: Go 1.24.0 or newer is required. Install it from https://go.dev/dl/\n' >&2
+  printf 'Error: Go is required to build curlu. Install go1.24.0 from https://go.dev/dl/\n' >&2
   exit 1
 fi
+
+toolchain="$(awk '/^toolchain[[:space:]]+/ { print $2; exit }' go.mod)"
+if [[ -z "${toolchain}" ]]; then
+  go_line="$(awk '/^go[[:space:]]+/ { print $2; exit }' go.mod)"
+  if [[ -z "${go_line}" ]]; then
+    printf 'Error: go.mod is missing a go line\n' >&2
+    exit 1
+  fi
+  toolchain="go${go_line}"
+fi
+
+export GOTOOLCHAIN="${toolchain}"
 
 go_version="$(go env GOVERSION)"
-if [[ ! "${go_version}" =~ ^go([0-9]+)\.([0-9]+) ]]; then
-  printf 'Error: unable to determine the Go version from %s\n' "${go_version}" >&2
-  exit 1
-fi
-
-go_major="${BASH_REMATCH[1]}"
-go_minor="${BASH_REMATCH[2]}"
-if ((go_major < 1 || (go_major == 1 && go_minor < 24))); then
-  printf 'Error: Go 1.24.0 or newer is required; found %s\n' "${go_version}" >&2
+if [[ "${go_version}" != "${toolchain}" ]]; then
+  printf 'Error: JA4 fingerprints require %s exactly; found %s\n' "${toolchain}" "${go_version}" >&2
   exit 1
 fi
 

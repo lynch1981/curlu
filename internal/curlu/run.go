@@ -47,7 +47,7 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 		return 0
 	}
 	if opts.Version {
-		if _, err := fmt.Fprintf(stdout, "curlu %s (uTLS 1.8.2)\nProtocols: http https\n", version); err != nil {
+		if _, err := fmt.Fprintf(stdout, "curlu %s (uTLS %s, %s)\nProtocols: http https\n", version, runtimeUTLSVersion(), runtimeGoVersion()); err != nil {
 			return report(stderr, opts, 23, "failed writing output")
 		}
 		return 0
