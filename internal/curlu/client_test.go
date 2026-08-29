@@ -545,6 +545,16 @@ func TestUTLSHelloList(t *testing.T) {
 	}
 }
 
+func TestHelpListsResolve(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"-h"}, &stdout, &stderr, "test"); code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "--resolve <host:port:addr>") {
+		t.Fatalf("help missing --resolve:\n%s", stdout.String())
+	}
+}
+
 func TestDiagnosticsAndExitCodes(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
