@@ -1,5 +1,7 @@
 # curlu
 
+License: BSD-3-Clause — see LICENSE file.
+
 `curlu` is a focused HTTP/HTTPS command-line client written in Go. It is
 built to produce a stable JA4 TLS ClientHello for Test::Nginx, so the Go
 toolchain and [uTLS](https://github.com/refraction-networking/utls) release
