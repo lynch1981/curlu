@@ -25,6 +25,11 @@ curlu -i -H 'User-Agent:' -H 'Accept:' -H 'Host:' -sS \
 This sends one GET, prints the response headers and body, and omits the
 generated `User-Agent`, `Accept`, and `Host` headers.
 
+Test::Nginx looks up a binary named `curl`. Pointing `PATH` at the repo root
+is enough. curlu accepts the argv Test::Nginx generates (`-i -H -sS
+--http2-prior-knowledge --connect-timeout --max-time`, and a single-token
+`--- curl_options` blob such as `--utls-hello HelloChrome_120`).
+
 ## Options
 
 - `-i`, `--include` — Include response headers in stdout
@@ -66,48 +71,30 @@ curlu --resolve example.com:443:127.0.0.1 https://example.com/
 
 ## uTLS
 
-HTTPS uses the `HelloGolang` ClientHello by default. `--utls-hello` selects
-any ID from `--utls-hello-list`. Matching is case-insensitive. IDs are uTLS
-constant names (`HelloChrome_120`), not version numbers and not names such as
-`Chrome-120`.
-
-The list includes every distinct preset in the pinned uTLS release except
-`HelloCustom`, including Auto aliases and experimental or upstream-marked
-incompatible presets. Those presets are exposed on purpose and may fail to
-handshake with some servers.
+HTTPS uses `HelloGolang` by default. `--utls-hello` selects an ID from
+`--utls-hello-list` (case-insensitive uTLS names such as `HelloChrome_120`).
+The list includes every preset except `HelloCustom`. Experimental and
+incompatible presets are included and may fail to handshake.
 
 ```sh
 curlu --utls-hello HelloChrome_133 https://example.com/
 curlu --utls-hello-list
 ```
 
-A selected parrot keeps its own ALPN. `HelloGolang` advertises `http/1.1`
-only. `--utls-alpn-hex` replaces the first advertised protocol with the
-decoded bytes (even-length hex, so values with spaces survive Test::Nginx
-`--- curl_options`). Remaining parrot protocols are kept, so Chrome stays
-`[decoded, "http/1.1"]`. `--utls-alpn-none` omits the ALPN extension.
+A parrot keeps its ALPN (`HelloGolang` advertises `http/1.1` only).
+`--utls-alpn-hex` replaces the first protocol from even-length hex;
+`--utls-alpn-none` omits ALPN. If the server selects `h2`, the GET uses
+HTTP/2; otherwise it uses HTTP/1.1.
 
-If the server selects `h2`, the GET uses HTTP/2. If it selects `http/1.1` or
-no ALPN, the GET uses HTTP/1.1.
+`--utls-cipher-append 0xNNNN` appends a cipher ID. Repeating it keeps
+order and duplicates. If the server selects a cipher uTLS cannot
+implement, the handshake fails.
 
-`--utls-cipher-append` appends one cipher-suite ID to the selected
-ClientHello. The value must be four hexadecimal digits after a lowercase
-`0x`. Repeating the option keeps order and duplicates. Arbitrary values are
-accepted; if a server selects a cipher that uTLS cannot implement, the
-handshake fails.
+`--utls-info` prints `EXPECTED_CIPHER_COUNT=N` to stderr before the
+handshake, even with `--silent`. The count includes appended, duplicate,
+and SCSV values, but not GREASE.
 
-`--utls-info` writes one line to stderr after the ClientHello is built and
-before the handshake:
-
-```text
-EXPECTED_CIPHER_COUNT=17
-```
-
-The count includes appended values, duplicates, and SCSV entries, but
-excludes GREASE cipher values. It is printed even with `--silent`.
-
-`--utls-hello`, `--utls-cipher-append`, `--utls-alpn-hex`, `--utls-alpn-none`,
-and `--utls-info` require an `https://` URL.
+These flags require `https://`.
 
 ## JA4T
 
@@ -129,11 +116,6 @@ Crafting a SYN needs a raw socket, and the kernel would RST the SYN-ACK.
 The repo ships a `curl` wrapper (not a symlink) for that path. Without
 `--ja4t` the wrapper runs `curlu` unchanged. With `--ja4t` it needs root,
 `ip`, and `nft`. `./curlu --ja4t` is unsupported.
-
-Test::Nginx looks up a binary named `curl`. Pointing `PATH` at the repo root
-is enough. curlu accepts the argv Test::Nginx generates (`-i -H -sS
---http2-prior-knowledge --connect-timeout --max-time`, and a single-token
-`--- curl_options` blob such as `--utls-hello HelloChrome_120`).
 
 ## Limits
 
