@@ -87,26 +87,45 @@ sysctl -w "net.ipv4.conf.${host_veth}.forwarding=1" >/dev/null
 nft add table ip "${table}"
 nft add chain ip "${table}" prerouting '{ type nat hook prerouting priority dstnat; policy accept; }'
 nft add chain ip "${table}" postrouting '{ type nat hook postrouting priority srcnat; policy accept; }'
-nft add rule ip "${table}" prerouting iifname "${host_veth}" tcp dport "${port}" dnat to 127.0.0.1
+nft add rule ip "${table}" prerouting iifname "${host_veth}" ip daddr "${host_ip}" dnat to 127.0.0.1
 nft add rule ip "${table}" postrouting oifname "${host_veth}" masquerade
+nft add rule ip "${table}" postrouting ip saddr "${ns_ip}" masquerade
+
+already=0
+prev=""
+for arg in "$@"; do
+	if [[ "${prev}" == "--resolve" ]]; then
+		case "${arg}" in
+		"${host}:${port}:"*) already=1 ;;
+		esac
+	fi
+	case "${arg}" in
+	--resolve="${host}:${port}:"*) already=1 ;;
+	esac
+	prev="${arg}"
+done
 
 extra=()
-if [[ "${host}" == "127.0.0.1" || "${host}" == "localhost" ]]; then
-	already=0
-	prev=""
-	for arg in "$@"; do
-		if [[ "${prev}" == "--resolve" ]]; then
-			case "${arg}" in
-			"${host}:${port}:"*) already=1 ;;
-			esac
-		fi
-		case "${arg}" in
-		--resolve="${host}:${port}:"*) already=1 ;;
-		esac
-		prev="${arg}"
-	done
-	if [[ "${already}" -eq 0 ]]; then
+if [[ "${already}" -eq 0 ]]; then
+	if [[ "${host}" == "127.0.0.1" || "${host}" == "localhost" ]]; then
 		extra+=(--resolve "${host}:${port}:${host_ip}")
+	elif [[ ! "${host}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+		ips=()
+		seen=" "
+		while read -r ip _; do
+			[[ -n "${ip}" ]] || continue
+			case "${seen}" in
+			*" ${ip} "*) continue ;;
+			esac
+			seen+="${ip} "
+			ips+=("${ip}")
+		done < <(getent ahostsv4 "${host}" 2>/dev/null || true)
+		if [[ "${#ips[@]}" -eq 0 ]]; then
+			printf 'curlu: (6) could not resolve host: %s\n' "${host}" >&2
+			exit 6
+		fi
+		joined="$(IFS=,; printf '%s' "${ips[*]}")"
+		extra+=(--resolve "${host}:${port}:${joined}")
 	fi
 fi
 

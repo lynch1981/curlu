@@ -118,9 +118,11 @@ Crafting a SYN requires a raw socket. The kernel would RST the SYN-ACK, so
 the repo has a `curl` wrapper (not a symlink). Without `--ja4t` the
 wrapper execs `curlu` unchanged. With `--ja4t` it creates a network namespace,
 drops RST there with nftables, DNATs the veth gateway address to host
-`127.0.0.1`, and execs `curlu`. curlu rewrites a loopback destination to the
-netns default gateway so raw SYNs leave the namespace. That path needs root,
-`ip`, and `nft`. Invoking `./curlu --ja4t` directly is unsupported.
+`127.0.0.1`, and execs `curlu`. Remote names are resolved on the host; the SYN
+is forwarded and masqueraded out of the namespace. curlu rewrites a loopback
+destination to the netns default gateway so raw SYNs leave the namespace. That
+path needs root, `ip`, and `nft`. Invoking `./curlu --ja4t` directly is
+unsupported.
 
 Test::Nginx looks up a binary named `curl`. Pointing `PATH` at the repo root is
 enough. curlu accepts the argv Test::Nginx generates (`-i -H -sS
