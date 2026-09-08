@@ -251,6 +251,40 @@ func TestLookupResolve(t *testing.T) {
 	}
 }
 
+func TestParseArgsJA4T(t *testing.T) {
+	opts, err := ParseArgs([]string{
+		"--ja4t", "64240_2-4-8-1-3_1460_7",
+		"--ja4t-retransmit", "1000-2000-4000",
+		"http://127.0.0.1/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.JA4T == nil || opts.JA4T.String() != "64240_2-4-8-1-3_1460_7" {
+		t.Fatalf("JA4T = %+v", opts.JA4T)
+	}
+	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second}
+	if !reflect.DeepEqual(opts.JA4TRetransmit, want) {
+		t.Fatalf("retransmit = %v", opts.JA4TRetransmit)
+	}
+
+	opts, err = ParseArgs([]string{"--ja4t=8192_00_00_00", "http://example.test/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.JA4T.String() != "8192_00_00_00" {
+		t.Fatalf("JA4T = %s", opts.JA4T)
+	}
+
+	opts, err = ParseArgs([]string{"--ja4t 64240_2-4-8-1-3_1460_7", "http://example.test/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.JA4T.String() != "64240_2-4-8-1-3_1460_7" {
+		t.Fatalf("blob JA4T = %s", opts.JA4T)
+	}
+}
+
 func TestParseArgsErrors(t *testing.T) {
 	tests := [][]string{
 		{}, {"--unknown", "http://example.test"}, {"-m", "-1", "http://example.test"},
@@ -270,6 +304,9 @@ func TestParseArgsErrors(t *testing.T) {
 		{"--resolve", "-example.com:443:127.0.0.1", "http://example.test"},
 		{"--resolve", "example.com:443:127.0.0.1,", "http://example.test"},
 		{"--resolve", "[]:443:127.0.0.1", "http://example.test"},
+		{"--ja4t", "http://example.test"}, {"--ja4t", "bad", "http://example.test"},
+		{"--ja4t-retransmit", "1000", "http://example.test"},
+		{"--ja4t-retransmit", "0", "--ja4t", "8192_00_00_00", "http://example.test"},
 	}
 	for _, cipher := range []string{"0x0", "0X1234", "1234", "0x12345", "0xzzzz", "-0x0001"} {
 		tests = append(tests, []string{"--utls-cipher-append", cipher, "https://example.test"})

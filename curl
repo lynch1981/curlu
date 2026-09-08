@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+curlu="${here}/curlu"
+
+has_ja4t=0
+url=""
+for arg in "$@"; do
+	case "${arg}" in
+	--ja4t | --ja4t=*)
+		has_ja4t=1
+		;;
+	*://*)
+		url="${arg}"
+		;;
+	esac
+done
+
+if [[ "${has_ja4t}" -eq 0 ]]; then
+	exec "${curlu}" "$@"
+fi
+
+if [[ "${url}" == https://* ]]; then
+	exec "${curlu}" "$@"
+fi
+
+if [[ "$(id -u)" -ne 0 ]]; then
+	printf 'curlu: (7) --ja4t requires root (use sudo %s --ja4t ...)\n' "${0}" >&2
+	exit 7
+fi
+
+if [[ -z "${url}" ]]; then
+	exec "${curlu}" "$@"
+fi
+
+rest="${url#http://}"
+hostport="${rest%%/*}"
+host="${hostport}"
+port="80"
+if [[ "${hostport}" == \[* ]]; then
+	printf 'curlu: (2) JA4T crafting is IPv4-only\n' >&2
+	exit 2
+fi
+if [[ "${hostport}" == *:* ]]; then
+	host="${hostport%:*}"
+	port="${hostport##*:}"
+fi
+
+pid="$$"
+ns="curlu${pid}"
+host_veth="ch${pid}"
+ns_veth="cn${pid}"
+idx=$((pid % 16384))
+net=$((idx * 4))
+o2=$((net / 256))
+o3=$((net % 256))
+host_ip="10.255.${o2}.$((o3 + 1))"
+ns_ip="10.255.${o2}.$((o3 + 2))"
+table="curlu${pid}"
+
+cleanup() {
+	ip netns delete "${ns}" >/dev/null 2>&1 || true
+	ip link delete "${host_veth}" >/dev/null 2>&1 || true
+	nft delete table ip "${table}" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT INT TERM
+
+ip netns add "${ns}"
+ip link add "${host_veth}" type veth peer name "${ns_veth}"
+ip link set "${ns_veth}" netns "${ns}"
+ip addr add "${host_ip}/30" dev "${host_veth}"
+ip link set "${host_veth}" up
+ip netns exec "${ns}" ip addr add "${ns_ip}/30" dev "${ns_veth}"
+ip netns exec "${ns}" ip link set "${ns_veth}" up
+ip netns exec "${ns}" ip link set lo up
+ip netns exec "${ns}" ip route add default via "${host_ip}"
+
+ip netns exec "${ns}" nft add table inet curlu
+ip netns exec "${ns}" nft add chain inet curlu output '{ type filter hook output priority 0; policy accept; }'
+ip netns exec "${ns}" nft add rule inet curlu output tcp flags rst drop
+
+sysctl -w "net.ipv4.ip_forward=1" >/dev/null
+sysctl -w "net.ipv4.conf.${host_veth}.route_localnet=1" >/dev/null
+sysctl -w "net.ipv4.conf.${host_veth}.forwarding=1" >/dev/null
+
+nft add table ip "${table}"
+nft add chain ip "${table}" prerouting '{ type nat hook prerouting priority dstnat; policy accept; }'
+nft add chain ip "${table}" postrouting '{ type nat hook postrouting priority srcnat; policy accept; }'
+nft add rule ip "${table}" prerouting iifname "${host_veth}" tcp dport "${port}" dnat to 127.0.0.1
+nft add rule ip "${table}" postrouting oifname "${host_veth}" masquerade
+
+extra=()
+if [[ "${host}" == "127.0.0.1" || "${host}" == "localhost" ]]; then
+	already=0
+	prev=""
+	for arg in "$@"; do
+		if [[ "${prev}" == "--resolve" ]]; then
+			case "${arg}" in
+			"${host}:${port}:"*) already=1 ;;
+			esac
+		fi
+		case "${arg}" in
+		--resolve="${host}:${port}:"*) already=1 ;;
+		esac
+		prev="${arg}"
+	done
+	if [[ "${already}" -eq 0 ]]; then
+		extra+=(--resolve "${host}:${port}:${host_ip}")
+	fi
+fi
+
+ip netns exec "${ns}" "${curlu}" "$@" "${extra[@]}"

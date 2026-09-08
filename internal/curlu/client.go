@@ -26,8 +26,8 @@ func execute(opts Options, stdout, stderr io.Writer, version string) *ExitError 
 	if exitErr != nil {
 		return exitErr
 	}
-	if target.Scheme != "https" && utlsOptionsSet(opts) {
-		return fail(2, "uTLS options require an HTTPS URL")
+	if exitErr := checkTransportOptions(opts, target); exitErr != nil {
+		return exitErr
 	}
 	headers, suppressedDefaults, exitErr := parseRequestHeaders(opts.Headers)
 	if exitErr != nil {
@@ -57,13 +57,7 @@ func execute(opts Options, stdout, stderr io.Writer, version string) *ExitError 
 		}
 	}
 	dialHost := target.Hostname()
-	var conn net.Conn
-	var err error
-	if addrs := lookupResolve(opts.Resolve, dialHost, port); len(addrs) > 0 {
-		conn, err = dialResolved(connectCtx, addrs, port)
-	} else {
-		conn, err = dialContext(connectCtx, "tcp", net.JoinHostPort(dialHost, port))
-	}
+	conn, err := dial(connectCtx, opts, dialHost, port)
 	if err != nil {
 		return connectFailure(err)
 	}
@@ -436,9 +430,45 @@ func dialResolved(ctx context.Context, addrs []string, port string) (net.Conn, e
 	return nil, lastErr
 }
 
+func checkTransportOptions(opts Options, target *url.URL) *ExitError {
+	ja4t := ja4tEnabled(opts)
+	utls := utlsOptionsSet(opts)
+	if ja4t && utls {
+		return fail(2, "JA4T options cannot be combined with uTLS options")
+	}
+	if ja4t && target.Scheme != "http" {
+		return fail(2, "JA4T options require an HTTP URL")
+	}
+	if utls && target.Scheme != "https" {
+		return fail(2, "uTLS options require an HTTPS URL")
+	}
+	return nil
+}
+
+func dial(ctx context.Context, opts Options, host, port string) (net.Conn, error) {
+	addrs := lookupResolve(opts.Resolve, host, port)
+	if !ja4tEnabled(opts) {
+		if len(addrs) > 0 {
+			return dialResolved(ctx, addrs, port)
+		}
+		return dialContext(ctx, "tcp", net.JoinHostPort(host, port))
+	}
+	if len(addrs) == 0 {
+		var err error
+		addrs, err = lookupIPv4(ctx, host)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return dialJA4TAddrs(ctx, addrs, port, *opts.JA4T, opts.JA4TRetransmit)
+}
+
 func connectFailure(err error) *ExitError {
 	if isTimeout(err) {
 		return fail(28, "connection timed out")
+	}
+	if errors.Is(err, errJA4TIPv4Only) {
+		return fail(2, "%s", err.Error())
 	}
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {

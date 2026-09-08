@@ -25,6 +25,8 @@ Options:
       --utls-alpn-hex <hex>     Set the first ALPN protocol from even-length hex
       --utls-alpn-none          Omit the ALPN extension
       --utls-info               Print EXPECTED_CIPHER_COUNT to stderr
+      --ja4t <fp>               Craft the TCP SYN to match a JA4T fingerprint (HTTP)
+      --ja4t-retransmit <ms-ms> SYN retry delays in milliseconds (requires --ja4t)
   -k, --insecure                Accepted; verification is always disabled
       --http2-prior-knowledge   Accepted; parrot ALPN still applies unless overridden
   -h, --help                    Show this help

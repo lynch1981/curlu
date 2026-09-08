@@ -36,6 +36,8 @@ Supported options:
 - `--utls-alpn-hex <hex>`
 - `--utls-alpn-none`
 - `--utls-info`
+- `--ja4t <fingerprint>` (HTTP only; run via `./curl` as root)
+- `--ja4t-retransmit <ms-ms-…>`
 - `-k`, `--insecure` (accepted; verification is always disabled)
 - `--http2-prior-knowledge` (accepted; ALPN still comes from the parrot)
 - `-h`, `--help`
@@ -96,16 +98,40 @@ The count includes appended values, duplicates, and SCSV entries, but excludes
 GREASE cipher values. It is printed even with `--silent`. The Hello selector, cipher append, ALPN, and info options require an
 `https://` URL; using them with `http://` is an invalid invocation.
 
-Test::Nginx looks up a binary named `curl`. `./build.sh` writes a `curl`
-symlink next to `curlu`, so pointing `PATH` at the repo root is enough. curlu
-accepts the argv Test::Nginx generates (`-i -H -sS --http2-prior-knowledge
---connect-timeout --max-time`, and a single-token `--- curl_options` blob such
-as `--utls-hello HelloChrome_120`).
+## JA4T controls
+
+`--ja4t` crafts the TCP SYN so a listener sees the given JA4T fingerprint
+(`window_options_mss_wscale`). HTTP only; combining it with `--utls-*` or an
+`https://` URL is an invalid invocation. IPv6 is not supported.
+
+```sh
+sudo ./curl --ja4t 64240_2-4-8-1-3_1460_7 http://127.0.0.1:8080/t
+sudo ./curl --ja4t 65535_2-1-3-1-1-8-4-0-0_1460_6 \
+  --ja4t-retransmit 1000-2000-4000 http://127.0.0.1:8080/t
+```
+
+`--ja4t-retransmit` is a list of millisecond delays between SYN retries while
+waiting for SYN-ACK. It is not part of the JA4T string. A server that answers
+the first SYN never sees the retries.
+
+Crafting a SYN requires a raw socket. The kernel would RST the SYN-ACK, so
+the repo has a `curl` wrapper (not a symlink). Without `--ja4t` the
+wrapper execs `curlu` unchanged. With `--ja4t` it creates a network namespace,
+drops RST there with nftables, DNATs the veth gateway address to host
+`127.0.0.1`, and execs `curlu`. curlu rewrites a loopback destination to the
+netns default gateway so raw SYNs leave the namespace. That path needs root,
+`ip`, and `nft`. Invoking `./curlu --ja4t` directly is unsupported.
+
+Test::Nginx looks up a binary named `curl`. Pointing `PATH` at the repo root is
+enough. curlu accepts the argv Test::Nginx generates (`-i -H -sS
+--http2-prior-knowledge --connect-timeout --max-time`, and a single-token
+`--- curl_options` blob such as `--utls-hello HelloChrome_120`).
 
 ## Compatibility boundaries
 
 curlu v1 performs one GET request to one explicit `http://` or `https://` URL.
-`http://` uses HTTP/1.1. `https://` uses HTTP/2 when ALPN selects `h2` and
+`http://` uses HTTP/1.1. With `--ja4t` the SYN is crafted in userspace; without
+it the kernel TCP stack is used. `https://` uses HTTP/2 when ALPN selects `h2` and
 HTTP/1.1 otherwise. It connects directly and does not support proxy environment
 variables, redirects, request bodies, URL globbing, configuration files, or
 other protocols. HTTP 4xx and 5xx statuses are successful transfers, matching
@@ -133,8 +159,8 @@ and refuses any other compiler. Tests need the same toolchain:
 GOTOOLCHAIN=go1.24.0 go test -race ./...
 ```
 
-The build script embeds the current Git revision in the binary, writes the
-executable to `./curlu`, and creates a `./curl` symlink pointing at it.
+The build script embeds the current Git revision in the binary and writes the
+executable to `./curlu`. The `./curl` wrapper is a checked-in script next to it.
 
 ## Relevant exit codes
 
