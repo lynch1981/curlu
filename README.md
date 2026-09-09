@@ -120,19 +120,8 @@ The repo ships a `curl` wrapper (not a symlink) for that path. Without
 ## Limits
 
 - One GET to one explicit `http://` or `https://` URL.
-- `http://` uses HTTP/1.1. With `--ja4t` the SYN is crafted in userspace;
-  otherwise the kernel TCP stack is used.
-- `https://` uses HTTP/2 when ALPN selects `h2`, and HTTP/1.1 otherwise.
 - No proxies, redirects, request bodies, URL globbing, config files, or
   other protocols.
-- HTTP 4xx and 5xx are successful transfers, matching curl without `--fail`.
-- Response data goes to stdout. `-i` includes the status line and headers
-  (`HTTP/2 200` when the transfer used HTTP/2).
-- Errors are `curlu: (N) message` on stderr, with the matching curl exit
-  code. `-s` hides diagnostics; `-S` shows them again.
-- `-v` writes a curl-style connection and header trace to stderr (`*` info,
-  `>` sent headers, `<` received headers), even when `-s` is set.
-- There is no progress meter.
 
 ## Build and test
 
@@ -150,6 +139,15 @@ GOTOOLCHAIN=go1.24.0 go test -race ./...
 
 The build embeds the current Git revision and writes `./curlu`. The `./curl`
 wrapper is a checked-in script next to it.
+
+## Output
+
+Response data goes to stdout. `-i` includes the status line and headers
+(`HTTP/2 200` when the transfer used HTTP/2).
+
+Errors are `curlu: (N) message` on stderr, with the matching curl exit
+code. HTTP 4xx and 5xx are successful transfers, matching curl without
+`--fail`.
 
 ## Exit codes
 
