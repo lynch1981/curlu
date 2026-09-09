@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gopacket/gopacket/layers"
 )
@@ -174,22 +173,6 @@ func tcpOptionBytes(options []layers.TCPOption) int {
 		}
 	}
 	return n
-}
-
-func parseJA4TRetransmit(value string) ([]time.Duration, error) {
-	if value == "" {
-		return nil, fmt.Errorf("invalid JA4T retransmit %q", value)
-	}
-	fields := strings.Split(value, "-")
-	out := make([]time.Duration, 0, len(fields))
-	for _, field := range fields {
-		ms, err := strconv.ParseUint(field, 10, 32)
-		if err != nil || ms == 0 {
-			return nil, fmt.Errorf("invalid JA4T retransmit delay %q", field)
-		}
-		out = append(out, time.Duration(ms)*time.Millisecond)
-	}
-	return out, nil
 }
 
 func fingerprintHasKind(fp ja4tFingerprint, kind uint8) bool {

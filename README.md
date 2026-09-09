@@ -47,7 +47,6 @@ is enough. curlu accepts the argv Test::Nginx generates (`-i -H -sS
 - `--utls-alpn-none` — Omit the ALPN extension
 - `--utls-info` — Print `EXPECTED_CIPHER_COUNT` to stderr
 - `--ja4t <fingerprint>` — Craft the TCP SYN to match a JA4T fingerprint (HTTP only; run via `./curl` as root)
-- `--ja4t-retransmit <ms-ms-…>` — SYN retry delays in milliseconds (requires `--ja4t`)
 - `-k`, `--insecure` — Accepted; verification is always disabled
 - `--http2-prior-knowledge` — Accepted; parrot ALPN still applies unless overridden
 - `-h`, `--help` — Show this help
@@ -104,13 +103,7 @@ These flags require `https://`.
 
 ```sh
 sudo ./curl --ja4t 64240_2-4-8-1-3_1460_7 http://127.0.0.1:8080/t
-sudo ./curl --ja4t 65535_2-1-3-1-1-8-4-0-0_1460_6 \
-  --ja4t-retransmit 1000-2000-4000 http://127.0.0.1:8080/t
 ```
-
-`--ja4t-retransmit` is millisecond delays between SYN retries while waiting
-for SYN-ACK. It is not part of the JA4T string. A server that answers the
-first SYN never sees the retries.
 
 Crafting a SYN needs a raw socket, and the kernel would RST the SYN-ACK.
 The repo ships a `curl` wrapper (not a symlink) for that path. Without

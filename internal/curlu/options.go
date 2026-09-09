@@ -35,7 +35,6 @@ type Options struct {
 	UTLSALPNNone   bool
 	UTLSALPN       string
 	JA4T           *ja4tFingerprint
-	JA4TRetransmit []time.Duration
 	URL            string
 	Help           bool
 	Version        bool
@@ -172,17 +171,6 @@ func ParseArgs(args []string) (Options, error) {
 					return opts, fmt.Errorf("option --%s: %w", name, err)
 				}
 				opts.JA4T = &fp
-			case "ja4t-retransmit":
-				var err error
-				value, i, err = optionArgument(args, i, name, value, hasValue)
-				if err != nil {
-					return opts, err
-				}
-				delays, err := parseJA4TRetransmit(value)
-				if err != nil {
-					return opts, fmt.Errorf("option --%s: %w", name, err)
-				}
-				opts.JA4TRetransmit = delays
 			case "http2-prior-knowledge", "insecure":
 				// Accepted so Test::Nginx can invoke curlu as `curl`.
 				// HTTPS verification is always disabled; parrot ALPN can be
@@ -250,9 +238,6 @@ func ParseArgs(args []string) (Options, error) {
 	}
 	if opts.UTLSALPNNone && opts.UTLSALPN != "" {
 		return opts, fmt.Errorf("option --utls-alpn-none cannot be combined with --utls-alpn-hex")
-	}
-	if len(opts.JA4TRetransmit) > 0 && opts.JA4T == nil {
-		return opts, fmt.Errorf("option --ja4t-retransmit requires --ja4t")
 	}
 	if !opts.Help && !opts.Version && !opts.UTLSHelloList && opts.URL == "" {
 		return opts, fmt.Errorf("no URL specified")
