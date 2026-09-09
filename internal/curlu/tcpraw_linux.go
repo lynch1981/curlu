@@ -8,12 +8,11 @@ import (
 	"net"
 	"os"
 	"sync"
-	"time"
 
 	"golang.org/x/sys/unix"
 )
 
-func startJA4TConn(ctx context.Context, dstIP net.IP, dstPort uint16, fp ja4tFingerprint, retries []time.Duration) (net.Conn, error) {
+func startJA4TConn(ctx context.Context, dstIP net.IP, dstPort uint16, fp ja4tFingerprint) (net.Conn, error) {
 	dstIP = rewriteLoopback(dstIP)
 	srcIP, err := pickLocalIPv4(dstIP)
 	if err != nil {
@@ -27,7 +26,7 @@ func startJA4TConn(ctx context.Context, dstIP net.IP, dstPort uint16, fp ja4tFin
 	if err != nil {
 		return nil, err
 	}
-	conn, err := handshakeJA4T(ctx, raw, srcIP, dstIP.To4(), srcPort, dstPort, fp, retries)
+	conn, err := handshakeJA4T(ctx, raw, srcIP, dstIP.To4(), srcPort, dstPort, fp)
 	if err != nil {
 		_ = raw.Close()
 		return nil, err

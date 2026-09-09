@@ -460,7 +460,7 @@ func dial(ctx context.Context, opts Options, host, port string) (net.Conn, error
 			return nil, err
 		}
 	}
-	return dialJA4TAddrs(ctx, addrs, port, *opts.JA4T, opts.JA4TRetransmit)
+	return dialJA4TAddrs(ctx, addrs, port, *opts.JA4T)
 }
 
 func connectFailure(err error) *ExitError {

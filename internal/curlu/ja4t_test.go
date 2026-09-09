@@ -3,7 +3,6 @@ package curlu
 import (
 	"encoding/binary"
 	"net"
-	"reflect"
 	"testing"
 	"time"
 
@@ -40,22 +39,6 @@ func TestParseJA4TErrors(t *testing.T) {
 	} {
 		if _, err := parseJA4T(in); err == nil {
 			t.Errorf("parseJA4T(%q) unexpectedly succeeded", in)
-		}
-	}
-}
-
-func TestParseJA4TRetransmit(t *testing.T) {
-	got, err := parseJA4TRetransmit("1000-2000-4000")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	for _, in := range []string{"", "0", "1000-0", "abc", "1000-"} {
-		if _, err := parseJA4TRetransmit(in); err == nil {
-			t.Errorf("parseJA4TRetransmit(%q) unexpectedly succeeded", in)
 		}
 	}
 }

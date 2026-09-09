@@ -8,7 +8,7 @@ import (
 
 const helpText = `Usage: curlu [options...] <url>
 
-HTTP(S)-only curl-compatible client using uTLS, HTTP/1.1, and HTTP/2.
+curl-compatible HTTP(S) client with controllable JA4 (uTLS ClientHello) and JA4T (TCP SYN) fingerprints
 
 Options:
   -i, --include                 Include response headers in stdout
@@ -26,7 +26,6 @@ Options:
       --utls-alpn-none          Omit the ALPN extension
       --utls-info               Print EXPECTED_CIPHER_COUNT to stderr
       --ja4t <fp>               Craft the TCP SYN to match a JA4T fingerprint (HTTP)
-      --ja4t-retransmit <ms-ms> SYN retry delays in milliseconds (requires --ja4t)
   -k, --insecure                Accepted; verification is always disabled
       --http2-prior-knowledge   Accepted; parrot ALPN still applies unless overridden
   -h, --help                    Show this help

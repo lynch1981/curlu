@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
-	"sync"
 	"testing"
 	"time"
 
@@ -76,7 +75,7 @@ func TestJA4THandshakeAndHTTP(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	conn, err := handshakeJA4T(ctx, clientIO, src, dst, 12345, 80, fp, nil)
+	conn, err := handshakeJA4T(ctx, clientIO, src, dst, 12345, 80, fp)
 	if err != nil {
 		t.Fatalf("handshake: %v", err)
 	}
@@ -101,72 +100,10 @@ func TestJA4THandshakeAndHTTP(t *testing.T) {
 	}
 }
 
-func TestJA4TRetransmitSchedule(t *testing.T) {
-	clientIO, serverIO := newPacketPipe()
-	src := net.IPv4(10, 0, 0, 1).To4()
-	dst := net.IPv4(10, 0, 0, 2).To4()
-	fp, err := parseJA4T("8192_00_00_00")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var afterChans []chan time.Time
-	var mu sync.Mutex
-	ready := make(chan struct{}, 8)
-	ja4tAfter = func(time.Duration) <-chan time.Time {
-		ch := make(chan time.Time, 1)
-		mu.Lock()
-		afterChans = append(afterChans, ch)
-		mu.Unlock()
-		ready <- struct{}{}
-		return ch
-	}
-	t.Cleanup(func() { ja4tAfter = time.After })
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	errCh := make(chan error, 1)
-	go func() {
-		_, err := handshakeJA4T(ctx, clientIO, src, dst, 12345, 80, fp, []time.Duration{time.Second, 2 * time.Second})
-		errCh <- err
-	}()
-
-	synCount := 0
-	waitSYN := func() {
-		t.Helper()
-		raw, err := serverIO.Read(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, tcp, _, err := parseIPv4TCP(raw)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !tcp.SYN || tcp.ACK {
-			t.Fatalf("expected SYN, got SYN=%v ACK=%v", tcp.SYN, tcp.ACK)
-		}
-		synCount++
-	}
-	waitSYN()
-	<-ready
-	afterChans[0] <- time.Time{}
-	waitSYN()
-	<-ready
-	afterChans[1] <- time.Time{}
-	waitSYN()
-	if synCount != 3 {
-		t.Fatalf("syn count %d", synCount)
-	}
-	cancel()
-	if err := <-errCh; err == nil {
-		t.Fatal("expected handshake error")
-	}
-}
-
 func TestJA4TExecuteHTTP(t *testing.T) {
 	original := startJA4T
 	t.Cleanup(func() { startJA4T = original })
-	startJA4T = func(context.Context, net.IP, uint16, ja4tFingerprint, []time.Duration) (net.Conn, error) {
+	startJA4T = func(context.Context, net.IP, uint16, ja4tFingerprint) (net.Conn, error) {
 		client, server := net.Pipe()
 		go func() {
 			defer server.Close()

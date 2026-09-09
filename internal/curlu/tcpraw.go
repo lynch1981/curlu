@@ -20,7 +20,6 @@ import (
 
 var (
 	ja4tNow         = time.Now
-	ja4tAfter       = time.After
 	startJA4T       = startJA4TConn
 	errJA4TIPv4Only = errors.New("JA4T crafting is IPv4-only")
 )
@@ -48,7 +47,7 @@ func lookupIPv4(ctx context.Context, host string) ([]string, error) {
 	return addrs, nil
 }
 
-func dialJA4TAddrs(ctx context.Context, addrs []string, port string, fp ja4tFingerprint, retries []time.Duration) (net.Conn, error) {
+func dialJA4TAddrs(ctx context.Context, addrs []string, port string, fp ja4tFingerprint) (net.Conn, error) {
 	portNum, err := strconv.ParseUint(port, 10, 16)
 	if err != nil {
 		return nil, err
@@ -61,7 +60,7 @@ func dialJA4TAddrs(ctx context.Context, addrs []string, port string, fp ja4tFing
 			continue
 		}
 		sawV4 = true
-		conn, err := startJA4T(ctx, ip.To4(), uint16(portNum), fp, retries)
+		conn, err := startJA4T(ctx, ip.To4(), uint16(portNum), fp)
 		if err == nil {
 			return conn, nil
 		}
@@ -116,7 +115,7 @@ type ja4tConn struct {
 	stop          context.CancelFunc
 }
 
-func handshakeJA4T(ctx context.Context, io packetIO, srcIP, dstIP net.IP, srcPort, dstPort uint16, fp ja4tFingerprint, retries []time.Duration) (*ja4tConn, error) {
+func handshakeJA4T(ctx context.Context, io packetIO, srcIP, dstIP net.IP, srcPort, dstPort uint16, fp ja4tFingerprint) (*ja4tConn, error) {
 	iss, err := randomSeq()
 	if err != nil {
 		return nil, err
@@ -149,7 +148,7 @@ func handshakeJA4T(ctx context.Context, io packetIO, srcIP, dstIP net.IP, srcPor
 	conn.cond = sync.NewCond(&conn.mu)
 	go conn.pump(loopCtx)
 
-	synack, err := conn.waitSYNACK(ctx, iss, retries, syn)
+	synack, err := conn.waitSYNACK(ctx, iss)
 	if err != nil {
 		stop()
 		return nil, err
@@ -197,13 +196,8 @@ func (c *ja4tConn) pump(ctx context.Context) {
 	}
 }
 
-func (c *ja4tConn) waitSYNACK(ctx context.Context, iss uint32, retries []time.Duration, syn []byte) (*layers.TCP, error) {
-	retry := 0
+func (c *ja4tConn) waitSYNACK(ctx context.Context, iss uint32) (*layers.TCP, error) {
 	for {
-		var timer <-chan time.Time
-		if retry < len(retries) {
-			timer = ja4tAfter(retries[retry])
-		}
 		select {
 		case seg, ok := <-c.packets:
 			if !ok {
@@ -217,11 +211,6 @@ func (c *ja4tConn) waitSYNACK(ctx context.Context, iss uint32, retries []time.Du
 			}
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-timer:
-			if err := c.io.Write(syn); err != nil {
-				return nil, err
-			}
-			retry++
 		}
 	}
 }
