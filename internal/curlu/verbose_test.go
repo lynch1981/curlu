@@ -88,7 +88,7 @@ func TestVerboseHTTPS(t *testing.T) {
 	defer server.Close()
 
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"-sv", "--max-time", "2", server.URL}, &stdout, &stderr, "test")
+	code := Run([]string{"-skv", "--max-time", "2", server.URL}, &stdout, &stderr, "test")
 	if code != 0 {
 		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
 	}
@@ -120,7 +120,7 @@ func TestVerboseHTTP2(t *testing.T) {
 	defer server.Close()
 
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"-sv", "--utls-hello", "HelloChrome_102", "--max-time", "2", server.URL + "/x"}, &stdout, &stderr, "test")
+	code := Run([]string{"-skv", "--utls-hello", "HelloChrome_102", "--max-time", "2", server.URL + "/x"}, &stdout, &stderr, "test")
 	if code != 0 {
 		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
 	}

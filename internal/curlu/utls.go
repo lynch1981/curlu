@@ -3,6 +3,8 @@ package curlu
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -88,6 +90,13 @@ func utlsHelloNames() []string {
 	return names
 }
 
+func tlsServerName(hostname string, insecure bool) string {
+	if net.ParseIP(hostname) != nil && insecure {
+		return ""
+	}
+	return hostname
+}
+
 func handshakeUTLS(conn net.Conn, opts Options, serverName string, stderr io.Writer, ctx context.Context, tr trace) (net.Conn, string, *ExitError) {
 	helloID := utls.HelloGolang
 	if opts.UTLSHello.Client != "" {
@@ -95,7 +104,7 @@ func handshakeUTLS(conn net.Conn, opts Options, serverName string, stderr io.Wri
 	}
 	config := &utls.Config{
 		ServerName:         serverName,
-		InsecureSkipVerify: true, // Deliberate curlu v1 policy.
+		InsecureSkipVerify: opts.Insecure,
 	}
 	if helloID == utls.HelloGolang {
 		config.NextProtos = golangNextProtos(opts)
@@ -124,6 +133,9 @@ func handshakeUTLS(conn net.Conn, opts Options, serverName string, stderr io.Wri
 		if isTimeout(err) || ctx.Err() != nil {
 			return nil, "", fail(28, "connection timed out")
 		}
+		if isCertVerifyError(err) {
+			return nil, "", fail(60, "SSL certificate problem: %v", err)
+		}
 		return nil, "", fail(35, "TLS handshake failed: %v", err)
 	}
 	state := tlsConn.ConnectionState()
@@ -131,13 +143,29 @@ func handshakeUTLS(conn net.Conn, opts Options, serverName string, stderr io.Wri
 	if state.NegotiatedProtocol != "" {
 		tr.info("ALPN: server accepted %s", state.NegotiatedProtocol)
 	}
-	tr.info("SSL certificate verification is disabled")
+	if opts.Insecure {
+		tr.info("SSL certificate verification is disabled")
+	} else {
+		tr.info("SSL certificate verify ok.")
+	}
 	switch state.NegotiatedProtocol {
 	case "", "http/1.1", "h2":
 		return tlsConn, state.NegotiatedProtocol, nil
 	default:
 		return nil, state.NegotiatedProtocol, fail(1, "server negotiated protocol %q; only HTTP/1.1 and HTTP/2 are supported", state.NegotiatedProtocol)
 	}
+}
+
+func isCertVerifyError(err error) bool {
+	var verify *tls.CertificateVerificationError
+	if errors.As(err, &verify) {
+		return true
+	}
+	var unknown x509.UnknownAuthorityError
+	var hostname x509.HostnameError
+	var invalid x509.CertificateInvalidError
+	var systemRoots x509.SystemRootsError
+	return errors.As(err, &unknown) || errors.As(err, &hostname) || errors.As(err, &invalid) || errors.As(err, &systemRoots)
 }
 
 func utlsOptionsSet(opts Options) bool {

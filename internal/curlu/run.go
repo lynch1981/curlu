@@ -26,12 +26,11 @@ Options:
       --utls-alpn-none          Omit the ALPN extension
       --utls-info               Print EXPECTED_CIPHER_COUNT to stderr
       --ja4t <fp>               Craft the TCP SYN to match a JA4T fingerprint (HTTP)
-  -k, --insecure                Accepted; verification is always disabled
+  -k, --insecure                Allow insecure server connections
       --http2-prior-knowledge   Accepted; parrot ALPN still applies unless overridden
   -h, --help                    Show this help
   -V, --version                 Show version information
 
-WARNING: HTTPS certificate verification is always disabled.
 Only one explicit http:// or https:// URL and the GET method are supported.
 Proxies, redirects, and request bodies are not supported.
 `

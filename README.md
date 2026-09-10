@@ -10,10 +10,6 @@ fingerprint. Go 1.24.0 and
 [uTLS](https://github.com/refraction-networking/utls) v1.8.2 are pinned so
 those fingerprints stay reproducible.
 
-> [!WARNING]
-> HTTPS certificate and hostname verification is always disabled in v1.
-> Do not use curlu when authenticating the remote server matters.
-
 ## Example
 
 ```sh
@@ -27,7 +23,7 @@ generated `User-Agent`, `Accept`, and `Host` headers.
 
 Test::Nginx looks up a binary named `curl`. Pointing `PATH` at the repo root
 is enough. curlu accepts the argv Test::Nginx generates (`-i -H -sS
---http2-prior-knowledge --connect-timeout --max-time`, and a single-token
+--http2-prior-knowledge -k --connect-timeout --max-time`, and a single-token
 `--- curl_options` blob such as `--utls-hello HelloChrome_120`).
 
 ## Options
@@ -47,7 +43,7 @@ is enough. curlu accepts the argv Test::Nginx generates (`-i -H -sS
 - `--utls-alpn-none` — Omit the ALPN extension
 - `--utls-info` — Print `EXPECTED_CIPHER_COUNT` to stderr
 - `--ja4t <fingerprint>` — Craft the TCP SYN to match a JA4T fingerprint (HTTP only; run via `./curl` as root)
-- `-k`, `--insecure` — Accepted; verification is always disabled
+- `-k`, `--insecure` — Skip HTTPS certificate and hostname verification
 - `--http2-prior-knowledge` — Accepted; parrot ALPN still applies unless overridden
 - `-h`, `--help` — Show this help
 - `-V`, `--version` — Show version information
@@ -160,3 +156,4 @@ code. HTTP 4xx and 5xx are successful transfers, matching curl without
 | 52 | Empty server reply |
 | 55 | Request send failed |
 | 56 | Response receive failed |
+| 60 | TLS certificate verification failed |
