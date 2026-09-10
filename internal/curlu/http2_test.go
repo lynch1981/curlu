@@ -23,7 +23,7 @@ func TestHTTP2ParrotGET(t *testing.T) {
 	defer server.Close()
 
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"-i", "-s", "--utls-hello", "HelloChrome_102", "--max-time", "2", server.URL}, &stdout, &stderr, "test")
+	code := Run([]string{"-i", "-sk", "--utls-hello", "HelloChrome_102", "--max-time", "2", server.URL}, &stdout, &stderr, "test")
 	if code != 0 {
 		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
 	}
@@ -57,7 +57,7 @@ func TestHTTP2FirefoxParrotGET(t *testing.T) {
 	defer server.Close()
 
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"-s", "--utls-hello", "HelloFirefox_55", "--max-time", "2", server.URL}, &stdout, &stderr, "test"); code != 0 {
+	if code := Run([]string{"-sk", "--utls-hello", "HelloFirefox_55", "--max-time", "2", server.URL}, &stdout, &stderr, "test"); code != 0 {
 		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
 	}
 	if stdout.String() != "ok" {
@@ -81,7 +81,7 @@ func TestHTTP2HeaderSuppression(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{
-		"-s", "--utls-hello", "HelloChrome_102",
+		"-sk", "--utls-hello", "HelloChrome_102",
 		"-H", "User-Agent:", "-H", "Accept:",
 		"--max-time", "2", server.URL,
 	}, &stdout, &stderr, "test")
@@ -110,7 +110,7 @@ func TestHelloGolangStaysHTTP1OnHTTP2Server(t *testing.T) {
 	defer server.Close()
 
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"-i", "-s", "--max-time", "2", server.URL}, &stdout, &stderr, "test")
+	code := Run([]string{"-i", "-sk", "--max-time", "2", server.URL}, &stdout, &stderr, "test")
 	if code != 0 {
 		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
 	}

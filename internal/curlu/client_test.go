@@ -157,7 +157,7 @@ func TestResolveHTTPSUsesURLHostnameForSNI(t *testing.T) {
 	port := listenerPort(t, server.URL)
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{
-		"-s", "--max-time", "2",
+		"-sk", "--max-time", "2",
 		"--resolve", "resolve.test:" + port + ":127.0.0.1",
 		"https://resolve.test:" + port + "/",
 	}, &stdout, &stderr, "test")
@@ -187,7 +187,7 @@ func TestResolveHTTP2(t *testing.T) {
 	port := listenerPort(t, server.URL)
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{
-		"-s", "--utls-hello", "HelloChrome_102", "--max-time", "2",
+		"-sk", "--utls-hello", "HelloChrome_102", "--max-time", "2",
 		"--resolve", "resolve.test:" + port + ":127.0.0.1",
 		"https://resolve.test:" + port + "/x",
 	}, &stdout, &stderr, "test")
@@ -291,14 +291,54 @@ func TestResolveConnectFailureIsNotDNS(t *testing.T) {
 	}
 }
 
-func TestHTTPSAcceptsSelfSignedCertificate(t *testing.T) {
+func TestHTTPSCertificateVerification(t *testing.T) {
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "secure") }))
 	server.EnableHTTP2 = false
 	server.StartTLS()
 	defer server.Close()
+
+	t.Run("rejects self-signed", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		if code := Run([]string{"--max-time", "2", server.URL}, &stdout, &stderr, "test"); code != 60 {
+			t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "SSL certificate problem:") {
+			t.Fatalf("stderr = %q", stderr.String())
+		}
+	})
+	t.Run("insecure accepts self-signed", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		if code := Run([]string{"-k", "--max-time", "2", server.URL}, &stdout, &stderr, "test"); code != 0 {
+			t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+		}
+		if stdout.String() != "secure" {
+			t.Fatalf("stdout = %q", stdout.String())
+		}
+	})
+}
+
+func TestHTTPSRejectsHostnameMismatch(t *testing.T) {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "secure") }))
+	server.EnableHTTP2 = false
+	server.StartTLS()
+	defer server.Close()
+
+	port := listenerPort(t, server.URL)
+	args := []string{
+		"--max-time", "2",
+		"--resolve", "resolve.test:" + port + ":127.0.0.1",
+		"https://resolve.test:" + port + "/",
+	}
 	var stdout, stderr bytes.Buffer
-	if code := Run([]string{"--max-time", "2", server.URL}, &stdout, &stderr, "test"); code != 0 {
+	if code := Run(args, &stdout, &stderr, "test"); code != 60 {
 		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	insecure := append([]string{"-k"}, args...)
+	if code := Run(insecure, &stdout, &stderr, "test"); code != 0 {
+		t.Fatalf("insecure code = %d, stderr = %q", code, stderr.String())
 	}
 	if stdout.String() != "secure" {
 		t.Fatalf("stdout = %q", stdout.String())
@@ -322,7 +362,7 @@ func TestUTLSClientHelloOptions(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{
-		"-s", "--utls-hello", "HelloChrome_102",
+		"-sk", "--utls-hello", "HelloChrome_102",
 		"--utls-cipher-append", "0x1234",
 		"--utls-cipher-append", "0x00ff",
 		"--utls-info", server.URL,
@@ -365,7 +405,7 @@ func TestUTLSHelloGolangCipherAppend(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{
-		"-s", "--utls-cipher-append", "0x1234", "--utls-cipher-append", "0x00ff",
+		"-sk", "--utls-cipher-append", "0x1234", "--utls-cipher-append", "0x00ff",
 		"--utls-info", server.URL,
 	}, &stdout, &stderr, "test")
 	if code != 0 {
@@ -400,7 +440,7 @@ func TestUTLSParrotKeepsALPN(t *testing.T) {
 	defer server.Close()
 
 	var stdout, stderr bytes.Buffer
-	_ = Run([]string{"-s", "--utls-hello", "HelloChrome_120", server.URL}, &stdout, &stderr, "test")
+	_ = Run([]string{"-sk", "--utls-hello", "HelloChrome_120", server.URL}, &stdout, &stderr, "test")
 	select {
 	case info := <-hello:
 		if want := []string{"h2", "http/1.1"}; !reflect.DeepEqual(info.SupportedProtos, want) {
@@ -418,7 +458,7 @@ func TestUTLSInfoDoesNotCountAppendedGREASE(t *testing.T) {
 	defer server.Close()
 
 	run := func(extra ...string) int {
-		args := []string{"--utls-hello", "HelloFirefox_105", "--utls-info"}
+		args := []string{"-k", "--utls-hello", "HelloFirefox_105", "--utls-info"}
 		args = append(args, extra...)
 		args = append(args, server.URL)
 		var stdout, stderr bytes.Buffer
@@ -477,7 +517,7 @@ func TestUTLSALPNHexRewritesFirstProtocol(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{
-		"-s", "--utls-hello", "HelloChrome_120",
+		"-sk", "--utls-hello", "HelloChrome_120",
 		"--utls-alpn-hex", "6820",
 		server.URL,
 	}, &stdout, &stderr, "test")
@@ -506,7 +546,7 @@ func TestUTLSALPNNoneOmitsExtension(t *testing.T) {
 	defer server.Close()
 
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"-s", "--utls-hello", "HelloChrome_120", "--utls-alpn-none", server.URL}, &stdout, &stderr, "test")
+	code := Run([]string{"-sk", "--utls-hello", "HelloChrome_120", "--utls-alpn-none", server.URL}, &stdout, &stderr, "test")
 	if code != 0 {
 		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
 	}
@@ -550,8 +590,15 @@ func TestHelpListsResolve(t *testing.T) {
 	if code := Run([]string{"-h"}, &stdout, &stderr, "test"); code != 0 {
 		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "--resolve <host:port:addr>") {
-		t.Fatalf("help missing --resolve:\n%s", stdout.String())
+	help := stdout.String()
+	if !strings.Contains(help, "--resolve <host:port:addr>") {
+		t.Fatalf("help missing --resolve:\n%s", help)
+	}
+	if !strings.Contains(help, "-k, --insecure                Allow insecure server connections") {
+		t.Fatalf("help missing --insecure:\n%s", help)
+	}
+	if strings.Contains(help, "verification is always disabled") {
+		t.Fatalf("help still claims verification is always disabled:\n%s", help)
 	}
 }
 

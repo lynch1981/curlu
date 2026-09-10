@@ -1,6 +1,9 @@
 package curlu
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"io"
 	"reflect"
 	"sort"
 	"testing"
@@ -8,6 +11,57 @@ import (
 
 	utls "github.com/refraction-networking/utls"
 )
+
+func TestParseArgsInsecure(t *testing.T) {
+	opts, err := ParseArgs([]string{"https://example.test/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Insecure {
+		t.Fatal("Insecure is true by default")
+	}
+
+	for _, args := range [][]string{
+		{"-k", "https://example.test/"},
+		{"--insecure", "https://example.test/"},
+		{"-sk", "http://example.test/"},
+	} {
+		opts, err = ParseArgs(args)
+		if err != nil {
+			t.Fatalf("ParseArgs(%q): %v", args, err)
+		}
+		if !opts.Insecure {
+			t.Fatalf("ParseArgs(%q) Insecure is false", args)
+		}
+	}
+}
+
+func TestIsCertVerifyError(t *testing.T) {
+	if isCertVerifyError(io.EOF) {
+		t.Fatal("EOF is not a cert verify error")
+	}
+	if !isCertVerifyError(x509.UnknownAuthorityError{}) {
+		t.Fatal("UnknownAuthorityError should be a cert verify error")
+	}
+	if !isCertVerifyError(&tls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}}) {
+		t.Fatal("CertificateVerificationError should be a cert verify error")
+	}
+}
+
+func TestTLSServerName(t *testing.T) {
+	if got := tlsServerName("example.test", false); got != "example.test" {
+		t.Fatalf("hostname verify = %q", got)
+	}
+	if got := tlsServerName("example.test", true); got != "example.test" {
+		t.Fatalf("hostname insecure = %q", got)
+	}
+	if got := tlsServerName("127.0.0.1", false); got != "127.0.0.1" {
+		t.Fatalf("ip verify = %q", got)
+	}
+	if got := tlsServerName("127.0.0.1", true); got != "" {
+		t.Fatalf("ip insecure = %q", got)
+	}
+}
 
 func TestParseArgsExactWorkflow(t *testing.T) {
 	opts, err := ParseArgs([]string{
@@ -77,7 +131,7 @@ func TestParseArgsTestNginxCurlCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !opts.Include || !opts.Silent || !opts.ShowError || !opts.Verbose {
+	if !opts.Include || !opts.Silent || !opts.ShowError || !opts.Verbose || !opts.Insecure {
 		t.Fatalf("boolean options not parsed: %+v", opts)
 	}
 	if opts.UTLSHello != utls.HelloFirefox_55 {
@@ -289,6 +343,7 @@ func TestParseArgsErrors(t *testing.T) {
 		{"--utls-hello", "Chrome-102", "https://example.test"}, {"--utls-cipher-append"},
 		{"--utls-hello-list=yes"}, {"--utls-info=yes", "https://example.test"},
 		{"--verbose=yes", "https://example.test"},
+		{"--insecure=yes", "https://example.test"},
 		{"--utls-alpn-hex", "https://example.test"}, {"--utls-alpn-hex", "6", "https://example.test"},
 		{"--utls-alpn-hex", "zz", "https://example.test"}, {"--utls-alpn-none=yes", "https://example.test"},
 		{"--utls-alpn-none", "--utls-alpn-hex", "68", "https://example.test"},

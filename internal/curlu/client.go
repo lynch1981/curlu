@@ -68,11 +68,7 @@ func execute(opts Options, stdout, stderr io.Writer, version string) *ExitError 
 
 	proto := ""
 	if target.Scheme == "https" {
-		serverName := ""
-		if net.ParseIP(target.Hostname()) == nil {
-			serverName = target.Hostname()
-		}
-		tlsConn, negotiated, exitErr := handshakeUTLS(conn, opts, serverName, stderr, connectCtx, tr)
+		tlsConn, negotiated, exitErr := handshakeUTLS(conn, opts, tlsServerName(target.Hostname(), opts.Insecure), stderr, connectCtx, tr)
 		if exitErr != nil {
 			return exitErr
 		}

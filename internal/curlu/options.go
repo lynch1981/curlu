@@ -35,6 +35,7 @@ type Options struct {
 	UTLSALPNNone   bool
 	UTLSALPN       string
 	JA4T           *ja4tFingerprint
+	Insecure       bool
 	URL            string
 	Help           bool
 	Version        bool
@@ -171,13 +172,17 @@ func ParseArgs(args []string) (Options, error) {
 					return opts, fmt.Errorf("option --%s: %w", name, err)
 				}
 				opts.JA4T = &fp
-			case "http2-prior-knowledge", "insecure":
+			case "http2-prior-knowledge":
 				// Accepted so Test::Nginx can invoke curlu as `curl`.
-				// HTTPS verification is always disabled; parrot ALPN can be
-				// overridden with --utls-alpn-hex / --utls-alpn-none.
+				// Parrot ALPN can be overridden with --utls-alpn-hex / --utls-alpn-none.
 				if hasValue {
 					return opts, optionValueError(name)
 				}
+			case "insecure":
+				if hasValue {
+					return opts, optionValueError(name)
+				}
+				opts.Insecure = true
 			case "help":
 				if hasValue {
 					return opts, optionValueError(name)
@@ -207,7 +212,7 @@ func ParseArgs(args []string) (Options, error) {
 			case 'v':
 				opts.Verbose = true
 			case 'k':
-				// curl --insecure. curlu always skips certificate verification.
+				opts.Insecure = true
 			case 'h':
 				opts.Help = true
 			case 'V':
