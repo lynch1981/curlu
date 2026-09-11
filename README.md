@@ -44,7 +44,7 @@ is enough. curlu accepts the argv Test::Nginx generates (`-i -H -sS
 - `--utls-info` — Print `EXPECTED_CIPHER_COUNT` to stderr
 - `--ja4t <fingerprint>` — Craft the TCP SYN to match a JA4T fingerprint (HTTP only; run via `./curl` as root)
 - `-k`, `--insecure` — Skip HTTPS certificate and hostname verification
-- `--http2-prior-knowledge` — Accepted; parrot ALPN still applies unless overridden
+- `--http2-prior-knowledge` — Issue cleartext HTTP/2 immediately (no `Upgrade`). HTTPS still uses the parrot’s ALPN; `--utls-alpn-hex` / `--utls-alpn-none` still override
 - `-h`, `--help` — Show this help
 - `-V`, `--version` — Show version information
 

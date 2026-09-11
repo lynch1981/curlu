@@ -27,7 +27,7 @@ Options:
       --utls-info               Print EXPECTED_CIPHER_COUNT to stderr
       --ja4t <fp>               Craft the TCP SYN to match a JA4T fingerprint (HTTP)
   -k, --insecure                Allow insecure server connections
-      --http2-prior-knowledge   Accepted; parrot ALPN still applies unless overridden
+      --http2-prior-knowledge   Use HTTP/2 without upgrade (h2c); HTTPS still uses ALPN
   -h, --help                    Show this help
   -V, --version                 Show version information
 

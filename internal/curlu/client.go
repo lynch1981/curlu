@@ -82,7 +82,7 @@ func execute(opts Options, stdout, stderr io.Writer, version string) *ExitError 
 			return fail(55, "failed setting transfer deadline: %v", err)
 		}
 	}
-	if proto == "h2" {
+	if proto == "h2" || (opts.HTTP2PriorKnowledge && target.Scheme == "http") {
 		return roundTripHTTP2(conn, target, headers, suppressedDefaults, stdout, opts.Include, version, operationCtx, tr)
 	}
 
