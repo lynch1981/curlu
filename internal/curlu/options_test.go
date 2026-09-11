@@ -131,7 +131,7 @@ func TestParseArgsTestNginxCurlCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !opts.Include || !opts.Silent || !opts.ShowError || !opts.Verbose || !opts.Insecure {
+	if !opts.Include || !opts.Silent || !opts.ShowError || !opts.Verbose || !opts.Insecure || !opts.HTTP2PriorKnowledge {
 		t.Fatalf("boolean options not parsed: %+v", opts)
 	}
 	if opts.UTLSHello != utls.HelloFirefox_55 {
@@ -344,6 +344,7 @@ func TestParseArgsErrors(t *testing.T) {
 		{"--utls-hello-list=yes"}, {"--utls-info=yes", "https://example.test"},
 		{"--verbose=yes", "https://example.test"},
 		{"--insecure=yes", "https://example.test"},
+		{"--http2-prior-knowledge=yes", "http://example.test"},
 		{"--utls-alpn-hex", "https://example.test"}, {"--utls-alpn-hex", "6", "https://example.test"},
 		{"--utls-alpn-hex", "zz", "https://example.test"}, {"--utls-alpn-none=yes", "https://example.test"},
 		{"--utls-alpn-none", "--utls-alpn-hex", "68", "https://example.test"},

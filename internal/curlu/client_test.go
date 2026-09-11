@@ -597,6 +597,9 @@ func TestHelpListsResolve(t *testing.T) {
 	if !strings.Contains(help, "-k, --insecure                Allow insecure server connections") {
 		t.Fatalf("help missing --insecure:\n%s", help)
 	}
+	if !strings.Contains(help, "--http2-prior-knowledge   Use HTTP/2 without upgrade (h2c); HTTPS still uses ALPN") {
+		t.Fatalf("help missing --http2-prior-knowledge:\n%s", help)
+	}
 	if strings.Contains(help, "verification is always disabled") {
 		t.Fatalf("help still claims verification is always disabled:\n%s", help)
 	}

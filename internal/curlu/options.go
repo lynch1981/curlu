@@ -20,25 +20,26 @@ type resolveEntry struct {
 }
 
 type Options struct {
-	Include        bool
-	Silent         bool
-	ShowError      bool
-	Verbose        bool
-	Headers        []string
-	Resolve        []resolveEntry
-	ConnectTimeout time.Duration
-	MaxTime        time.Duration
-	UTLSHello      utls.ClientHelloID
-	UTLSCiphers    []uint16
-	UTLSHelloList  bool
-	UTLSInfo       bool
-	UTLSALPNNone   bool
-	UTLSALPN       string
-	JA4T           *ja4tFingerprint
-	Insecure       bool
-	URL            string
-	Help           bool
-	Version        bool
+	Include             bool
+	Silent              bool
+	ShowError           bool
+	Verbose             bool
+	Headers             []string
+	Resolve             []resolveEntry
+	ConnectTimeout      time.Duration
+	MaxTime             time.Duration
+	UTLSHello           utls.ClientHelloID
+	UTLSCiphers         []uint16
+	UTLSHelloList       bool
+	UTLSInfo            bool
+	UTLSALPNNone        bool
+	UTLSALPN            string
+	JA4T                *ja4tFingerprint
+	Insecure            bool
+	HTTP2PriorKnowledge bool
+	URL                 string
+	Help                bool
+	Version             bool
 }
 
 func ParseArgs(args []string) (Options, error) {
@@ -173,11 +174,10 @@ func ParseArgs(args []string) (Options, error) {
 				}
 				opts.JA4T = &fp
 			case "http2-prior-knowledge":
-				// Accepted so Test::Nginx can invoke curlu as `curl`.
-				// Parrot ALPN can be overridden with --utls-alpn-hex / --utls-alpn-none.
 				if hasValue {
 					return opts, optionValueError(name)
 				}
+				opts.HTTP2PriorKnowledge = true
 			case "insecure":
 				if hasValue {
 					return opts, optionValueError(name)
