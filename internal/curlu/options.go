@@ -34,6 +34,7 @@ type Options struct {
 	UTLSInfo            bool
 	UTLSALPNNone        bool
 	UTLSALPN            string
+	UTLSExtNone         bool
 	JA4T                *ja4tFingerprint
 	Insecure            bool
 	HTTP2PriorKnowledge bool
@@ -151,6 +152,11 @@ func ParseArgs(args []string) (Options, error) {
 					return opts, optionValueError(name)
 				}
 				opts.UTLSALPNNone = true
+			case "utls-ext-none":
+				if hasValue {
+					return opts, optionValueError(name)
+				}
+				opts.UTLSExtNone = true
 			case "utls-alpn-hex":
 				var err error
 				value, i, err = optionArgument(args, i, name, value, hasValue)
@@ -243,6 +249,9 @@ func ParseArgs(args []string) (Options, error) {
 	}
 	if opts.UTLSALPNNone && opts.UTLSALPN != "" {
 		return opts, fmt.Errorf("option --utls-alpn-none cannot be combined with --utls-alpn-hex")
+	}
+	if opts.UTLSExtNone && (opts.UTLSALPNNone || opts.UTLSALPN != "") {
+		return opts, fmt.Errorf("option --utls-ext-none cannot be combined with --utls-alpn-none or --utls-alpn-hex")
 	}
 	if !opts.Help && !opts.Version && !opts.UTLSHelloList && opts.URL == "" {
 		return opts, fmt.Errorf("no URL specified")

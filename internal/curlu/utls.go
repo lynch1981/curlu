@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"sort"
 	"strings"
 
@@ -106,12 +107,21 @@ func handshakeUTLS(conn net.Conn, opts Options, serverName string, stderr io.Wri
 		ServerName:         serverName,
 		InsecureSkipVerify: opts.Insecure,
 	}
-	if helloID == utls.HelloGolang {
+	if helloID == utls.HelloGolang && !opts.UTLSExtNone {
 		config.NextProtos = golangNextProtos(opts)
 	}
 	tlsConn := utls.UClient(conn, config, helloID)
 
-	if utlsMutatesHello(opts) {
+	if opts.UTLSExtNone {
+		var err error
+		tlsConn, err = noExtensionsConn(conn, config, tlsConn, opts.UTLSCiphers)
+		if err != nil {
+			return nil, "", fail(35, "TLS handshake failed: %v", err)
+		}
+		if opts.UTLSInfo {
+			_, _ = fmt.Fprintf(stderr, "EXPECTED_CIPHER_COUNT=%d\n", countNonGREASE(tlsConn.HandshakeState.Hello.CipherSuites))
+		}
+	} else if utlsMutatesHello(opts) {
 		if err := tlsConn.BuildHandshakeState(); err != nil {
 			return nil, "", fail(35, "TLS handshake failed: %v", err)
 		}
@@ -169,11 +179,31 @@ func isCertVerifyError(err error) bool {
 }
 
 func utlsOptionsSet(opts Options) bool {
-	return opts.UTLSHello.Client != "" || len(opts.UTLSCiphers) > 0 || opts.UTLSInfo || opts.UTLSALPNNone || opts.UTLSALPN != ""
+	return opts.UTLSHello.Client != "" || len(opts.UTLSCiphers) > 0 || opts.UTLSInfo || opts.UTLSALPNNone || opts.UTLSALPN != "" || opts.UTLSExtNone
 }
 
 func utlsMutatesHello(opts Options) bool {
 	return len(opts.UTLSCiphers) > 0 || opts.UTLSInfo || opts.UTLSALPNNone || opts.UTLSALPN != ""
+}
+
+// noExtensionsConn replaces base with a client that sends base's cipher
+// suites, plus appended ones, in a ClientHello with no extensions. Only
+// TLS 1.2 is offered, so a TLS 1.2 ServerHello is not seen as a downgrade.
+func noExtensionsConn(conn net.Conn, config *utls.Config, base *utls.UConn, appended []uint16) (*utls.UConn, error) {
+	if err := base.BuildHandshakeState(); err != nil {
+		return nil, err
+	}
+	ciphers := append(slices.Clone(base.HandshakeState.Hello.CipherSuites), appended...)
+	tlsConn := utls.UClient(conn, config, utls.HelloCustom)
+	if err := tlsConn.ApplyPreset(&utls.ClientHelloSpec{
+		TLSVersMin:         utls.VersionTLS12,
+		TLSVersMax:         utls.VersionTLS12,
+		CipherSuites:       ciphers,
+		CompressionMethods: []byte{0},
+	}); err != nil {
+		return nil, err
+	}
+	return tlsConn, nil
 }
 
 func golangNextProtos(opts Options) []string {

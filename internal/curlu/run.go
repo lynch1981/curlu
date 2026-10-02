@@ -24,6 +24,7 @@ Options:
       --utls-cipher-append <id> Append a 0xNNNN cipher ID (repeatable)
       --utls-alpn-hex <hex>     Set the first ALPN protocol from even-length hex
       --utls-alpn-none          Omit the ALPN extension
+      --utls-ext-none           Send a TLS 1.2 ClientHello with no extensions
       --utls-info               Print EXPECTED_CIPHER_COUNT to stderr
       --ja4t <fp>               Craft the TCP SYN to match a JA4T fingerprint (HTTP)
   -k, --insecure                Allow insecure server connections
