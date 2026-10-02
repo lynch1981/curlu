@@ -41,6 +41,7 @@ is enough. curlu accepts the argv Test::Nginx generates (`-i -H -sS
 - `--utls-cipher-append <0xNNNN>` — Append a cipher ID (repeatable)
 - `--utls-alpn-hex <hex>` — Set the first ALPN protocol from even-length hex
 - `--utls-alpn-none` — Omit the ALPN extension
+- `--utls-ext-none` — Send a TLS 1.2 ClientHello with no extensions
 - `--utls-info` — Print `EXPECTED_CIPHER_COUNT` to stderr
 - `--ja4t <fingerprint>` — Craft the TCP SYN to match a JA4T fingerprint (HTTP only; run via `./curl` as root)
 - `-k`, `--insecure` — Skip HTTPS certificate and hostname verification
@@ -84,6 +85,18 @@ HTTP/2; otherwise it uses HTTP/1.1.
 `--utls-cipher-append 0xNNNN` appends a cipher ID. Repeating it keeps
 order and duplicates. If the server selects a cipher uTLS cannot
 implement, the handshake fails.
+
+`--utls-ext-none` sends the selected hello's cipher list, plus appended
+ciphers, in a TLS 1.2 ClientHello with no extensions (no SNI, ALPN,
+`supported_groups`, or `signature_algorithms`). It cannot be combined with
+`--utls-alpn-*`. Without those extensions only RSA key exchange can
+complete, so the list needs a cipher such as `0x002f` (`HelloGolang` has
+none; append it). OpenSSL 3 servers also need `@SECLEVEL=0`, because a
+hello without `signature_algorithms` implies SHA-1 signatures.
+
+```sh
+curlu -k --utls-ext-none --utls-cipher-append 0x002f https://example.com/
+```
 
 `--utls-info` prints `EXPECTED_CIPHER_COUNT=N` to stderr before the
 handshake, even with `--silent`. The count includes appended, duplicate,

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	utls "github.com/refraction-networking/utls"
 )
 
 func TestExactRequestAndIncludedResponse(t *testing.T) {
@@ -556,6 +558,73 @@ func TestUTLSALPNNoneOmitsExtension(t *testing.T) {
 	}
 }
 
+// extNoneServer accepts a TLS 1.2 ClientHello without extensions: with no
+// signature_algorithms or supported_groups, only RSA key exchange works.
+func extNoneServer(hello chan<- *tls.ClientHelloInfo) *httptest.Server {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	server.EnableHTTP2 = false
+	server.TLS = &tls.Config{
+		MaxVersion:   tls.VersionTLS12,
+		CipherSuites: []uint16{tls.TLS_RSA_WITH_AES_128_CBC_SHA},
+		GetConfigForClient: func(info *tls.ClientHelloInfo) (*tls.Config, error) {
+			hello <- info
+			return nil, nil
+		},
+	}
+	server.StartTLS()
+	return server
+}
+
+func TestUTLSExtNoneParrotKeepsCiphers(t *testing.T) {
+	hello := make(chan *tls.ClientHelloInfo, 1)
+	server := extNoneServer(hello)
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-sk", "--utls-hello", "HelloChrome_120", "--utls-ext-none", "--utls-info", server.URL}, &stdout, &stderr, "test")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "ok" {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	info := <-hello
+	if len(info.Extensions) != 0 {
+		t.Fatalf("extensions = %#v, want none", info.Extensions)
+	}
+	spec, err := utls.UTLSIdToSpec(utls.HelloChrome_120)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := countNonGREASE(info.CipherSuites), countNonGREASE(spec.CipherSuites); got != want {
+		t.Fatalf("cipher count = %d, want %d (%#v)", got, want, info.CipherSuites)
+	}
+	if want := fmt.Sprintf("EXPECTED_CIPHER_COUNT=%d\n", countNonGREASE(info.CipherSuites)); stderr.String() != want {
+		t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+	}
+}
+
+func TestUTLSExtNoneGolangAppendsCipher(t *testing.T) {
+	hello := make(chan *tls.ClientHelloInfo, 1)
+	server := extNoneServer(hello)
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"-sk", "--utls-ext-none", "--utls-cipher-append", "0x002f", server.URL}, &stdout, &stderr, "test")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	info := <-hello
+	if len(info.Extensions) != 0 {
+		t.Fatalf("extensions = %#v, want none", info.Extensions)
+	}
+	if got := info.CipherSuites[len(info.CipherSuites)-1]; got != 0x002f {
+		t.Fatalf("last cipher = %#04x, want 0x002f", got)
+	}
+}
+
 func TestUTLSOptionsRequireHTTPS(t *testing.T) {
 	for _, args := range [][]string{
 		{"--utls-hello", "HelloChrome_102", "http://example.test/"},
@@ -563,6 +632,7 @@ func TestUTLSOptionsRequireHTTPS(t *testing.T) {
 		{"--utls-info", "http://example.test/"},
 		{"--utls-alpn-hex", "68", "http://example.test/"},
 		{"--utls-alpn-none", "http://example.test/"},
+		{"--utls-ext-none", "http://example.test/"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if code := Run(args, &stdout, &stderr, "test"); code != 2 {

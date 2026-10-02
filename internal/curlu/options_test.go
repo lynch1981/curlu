@@ -334,6 +334,16 @@ func TestParseArgsJA4T(t *testing.T) {
 	}
 }
 
+func TestParseArgsUTLSExtNone(t *testing.T) {
+	opts, err := ParseArgs([]string{"--utls-hello HelloChrome_120 --utls-ext-none", "https://example.test/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.UTLSExtNone || opts.UTLSHello != utls.HelloChrome_120 {
+		t.Fatalf("opts = %+v", opts)
+	}
+}
+
 func TestParseArgsErrors(t *testing.T) {
 	tests := [][]string{
 		{}, {"--unknown", "http://example.test"}, {"-m", "-1", "http://example.test"},
@@ -348,6 +358,9 @@ func TestParseArgsErrors(t *testing.T) {
 		{"--utls-alpn-hex", "https://example.test"}, {"--utls-alpn-hex", "6", "https://example.test"},
 		{"--utls-alpn-hex", "zz", "https://example.test"}, {"--utls-alpn-none=yes", "https://example.test"},
 		{"--utls-alpn-none", "--utls-alpn-hex", "68", "https://example.test"},
+		{"--utls-ext-none=yes", "https://example.test"},
+		{"--utls-ext-none", "--utls-alpn-none", "https://example.test"},
+		{"--utls-ext-none", "--utls-alpn-hex", "68", "https://example.test"},
 		{"--resolve"}, {"--resolve", "example.com", "http://example.test"},
 		{"--resolve", "example.com:443:not-an-ip", "http://example.test"},
 		{"--resolve", "example.com:99999:127.0.0.1", "http://example.test"},
