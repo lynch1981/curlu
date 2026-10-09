@@ -39,7 +39,8 @@ type Options struct {
 	JA4T                *ja4tFingerprint
 	Insecure            bool
 	HTTP2PriorKnowledge bool
-	URL                 string
+	Globoff             bool
+	URLs                []string
 	Help                bool
 	Version             bool
 }
@@ -51,9 +52,7 @@ func ParseArgs(args []string) (Options, error) {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if positional || arg == "-" || !strings.HasPrefix(arg, "-") {
-			if err := setURL(&opts, arg); err != nil {
-				return opts, err
-			}
+			opts.URLs = append(opts.URLs, arg)
 			continue
 		}
 		if arg == "--" {
@@ -196,6 +195,11 @@ func ParseArgs(args []string) (Options, error) {
 					return opts, optionValueError(name)
 				}
 				opts.HTTP2PriorKnowledge = true
+			case "globoff":
+				if hasValue {
+					return opts, optionValueError(name)
+				}
+				opts.Globoff = true
 			case "insecure":
 				if hasValue {
 					return opts, optionValueError(name)
@@ -231,6 +235,8 @@ func ParseArgs(args []string) (Options, error) {
 				opts.Verbose = true
 			case 'k':
 				opts.Insecure = true
+			case 'g':
+				opts.Globoff = true
 			case 'h':
 				opts.Help = true
 			case 'V':
@@ -268,7 +274,7 @@ func ParseArgs(args []string) (Options, error) {
 	if len(opts.UTLSVersions) > 0 && (opts.UTLSExtNone || opts.UTLSHello.Client == "") {
 		return opts, fmt.Errorf("option --utls-version-append requires --utls-hello and cannot be combined with --utls-ext-none")
 	}
-	if !opts.Help && !opts.Version && !opts.UTLSHelloList && opts.URL == "" {
+	if !opts.Help && !opts.Version && !opts.UTLSHelloList && len(opts.URLs) == 0 {
 		return opts, fmt.Errorf("no URL specified")
 	}
 	return opts, nil
@@ -333,14 +339,6 @@ func expandCombinedFlags(args []string) []string {
 		out = append(out, arg)
 	}
 	return out
-}
-
-func setURL(opts *Options, value string) error {
-	if opts.URL != "" {
-		return fmt.Errorf("only one URL is supported")
-	}
-	opts.URL = value
-	return nil
 }
 
 func parseSeconds(value string) (time.Duration, error) {

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const helpText = `Usage: curlu [options...] <url>
+const helpText = `Usage: curlu [options...] <url>...
 
 curl-compatible HTTP(S) client with controllable JA4 (uTLS ClientHello) and JA4T (TCP SYN) fingerprints
 
@@ -29,11 +29,13 @@ Options:
       --utls-info               Print EXPECTED_CIPHER_COUNT to stderr
       --ja4t <fp>               Craft the TCP SYN to match a JA4T fingerprint (HTTP)
   -k, --insecure                Allow insecure server connections
+  -g, --globoff                 Disable {a,b} and [N-M] URL globbing
       --http2-prior-knowledge   Use HTTP/2 without upgrade (h2c); HTTPS still uses ALPN
   -h, --help                    Show this help
   -V, --version                 Show version information
 
-Only one explicit http:// or https:// URL and the GET method are supported.
+All URLs must share one scheme, host and port; they reuse one connection.
+Only explicit http:// or https:// URLs and the GET method are supported.
 Proxies, redirects, and request bodies are not supported.
 `
 

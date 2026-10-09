@@ -22,10 +22,11 @@ var (
 )
 
 func execute(opts Options, stdout, stderr io.Writer, version string) *ExitError {
-	target, exitErr := parseURL(opts.URL)
+	targets, exitErr := parseTargets(opts)
 	if exitErr != nil {
 		return exitErr
 	}
+	target := targets[0]
 	if exitErr := checkTransportOptions(opts, target); exitErr != nil {
 		return exitErr
 	}
@@ -41,60 +42,127 @@ func execute(opts Options, stdout, stderr io.Writer, version string) *ExitError 
 	}
 	defer cancelOperation()
 
-	connectCtx := operationCtx
-	var cancelConnect context.CancelFunc = func() {}
+	tr := newTrace(stderr, opts.Verbose)
+	conn, proto, exitErr := connect(operationCtx, opts, target, stderr, tr)
+	if exitErr != nil {
+		return exitErr
+	}
+	defer func() { conn.Close() }()
+	defer tr.info("Closing connection")
+
+	if proto == "h2" || (opts.HTTP2PriorKnowledge && target.Scheme == "http") {
+		return roundTripHTTP2(conn, targets, headers, suppressedDefaults, stdout, opts.Include, version, operationCtx, tr)
+	}
+
+	reader := bufio.NewReader(conn)
+	reuse := true
+	for i, target := range targets {
+		if i > 0 {
+			if reuse {
+				tr.info("Re-using existing connection")
+			} else {
+				tr.info("Closing connection")
+				conn.Close()
+				conn, _, exitErr = connect(operationCtx, opts, target, stderr, tr)
+				if exitErr != nil {
+					return exitErr
+				}
+				reader = bufio.NewReader(conn)
+			}
+		}
+		request := serializeHTTP1(target, headers, suppressedDefaults, version)
+		tr.dump("> ", request)
+		if err := writeAll(conn, request); err != nil {
+			if isTimeout(err) || operationCtx.Err() != nil {
+				return fail(28, "operation timed out")
+			}
+			return fail(55, "failed sending request: %v", err)
+		}
+		reader, reuse, exitErr = readResponse(reader, stdout, opts.Include, operationCtx, tr)
+		if exitErr != nil {
+			return exitErr
+		}
+	}
+	return nil
+}
+
+// parseTargets expands every URL argument and requires one origin, because
+// all requests share a single connection.
+func parseTargets(opts Options) ([]*url.URL, *ExitError) {
+	var targets []*url.URL
+	for _, raw := range opts.URLs {
+		expanded := []string{raw}
+		if !opts.Globoff {
+			var err error
+			expanded, err = expandGlob(raw)
+			if err != nil {
+				return nil, fail(3, "%v", err)
+			}
+		}
+		for _, one := range expanded {
+			target, exitErr := parseURL(one)
+			if exitErr != nil {
+				return nil, exitErr
+			}
+			targets = append(targets, target)
+		}
+	}
+	if len(targets) > maxGlobURLs {
+		return nil, fail(3, "more than %d URLs", maxGlobURLs)
+	}
+	first := targets[0]
+	for _, target := range targets[1:] {
+		if target.Scheme != first.Scheme || !strings.EqualFold(target.Hostname(), first.Hostname()) || targetPort(target) != targetPort(first) {
+			return nil, fail(2, "all URLs must share scheme, host and port")
+		}
+	}
+	return targets, nil
+}
+
+func targetPort(target *url.URL) string {
+	if port := target.Port(); port != "" {
+		return canonicalPort(port)
+	}
+	if target.Scheme == "https" {
+		return "443"
+	}
+	return "80"
+}
+
+// connect dials target and completes the TLS handshake for HTTPS, returning
+// the negotiated ALPN protocol. The connection's deadline is ctx's.
+func connect(ctx context.Context, opts Options, target *url.URL, stderr io.Writer, tr trace) (net.Conn, string, *ExitError) {
+	connectCtx := ctx
+	cancelConnect := context.CancelFunc(func() {})
 	if opts.ConnectTimeout > 0 {
-		connectCtx, cancelConnect = context.WithTimeout(operationCtx, opts.ConnectTimeout)
+		connectCtx, cancelConnect = context.WithTimeout(ctx, opts.ConnectTimeout)
 	}
 	defer cancelConnect()
 
-	port := target.Port()
-	if port == "" {
-		if target.Scheme == "https" {
-			port = "443"
-		} else {
-			port = "80"
-		}
-	}
-	dialHost := target.Hostname()
-	conn, err := dial(connectCtx, opts, dialHost, port)
+	conn, err := dial(connectCtx, opts, target.Hostname(), targetPort(target))
 	if err != nil {
-		return connectFailure(err)
+		return nil, "", connectFailure(err)
 	}
-	defer conn.Close()
-	tr := newTrace(stderr, opts.Verbose)
 	tr.connected(target.Hostname(), conn)
-	defer tr.info("Closing connection")
 
 	proto := ""
 	if target.Scheme == "https" {
 		tlsConn, negotiated, exitErr := handshakeUTLS(conn, opts, tlsServerName(target.Hostname(), opts.Insecure), stderr, connectCtx, tr)
 		if exitErr != nil {
-			return exitErr
+			conn.Close()
+			return nil, "", exitErr
 		}
 		conn = tlsConn
 		proto = negotiated
 	}
-	cancelConnect()
 
-	if deadline, ok := operationCtx.Deadline(); ok {
+	if deadline, ok := ctx.Deadline(); ok {
 		if err := conn.SetDeadline(deadline); err != nil {
-			return fail(55, "failed setting transfer deadline: %v", err)
+			conn.Close()
+			return nil, "", fail(55, "failed setting transfer deadline: %v", err)
 		}
 	}
-	if proto == "h2" || (opts.HTTP2PriorKnowledge && target.Scheme == "http") {
-		return roundTripHTTP2(conn, target, headers, suppressedDefaults, stdout, opts.Include, version, operationCtx, tr)
-	}
-
-	request := serializeHTTP1(target, headers, suppressedDefaults, version)
-	tr.dump("> ", request)
-	if err := writeAll(conn, request); err != nil {
-		if isTimeout(err) || operationCtx.Err() != nil {
-			return fail(28, "operation timed out")
-		}
-		return fail(55, "failed sending request: %v", err)
-	}
-	return readResponse(conn, stdout, opts.Include, operationCtx, tr)
+	return conn, proto, nil
 }
 
 func parseURL(raw string) (*url.URL, *ExitError) {
@@ -248,8 +316,9 @@ func writeAll(writer io.Writer, data []byte) error {
 	return nil
 }
 
-func readResponse(conn net.Conn, stdout io.Writer, include bool, ctx context.Context, tr trace) *ExitError {
-	reader := bufio.NewReader(conn)
+// readResponse copies one response to stdout. It returns the reader holding
+// any bytes past that response and whether the connection can be reused.
+func readResponse(reader *bufio.Reader, stdout io.Writer, include bool, ctx context.Context, tr trace) (*bufio.Reader, bool, *ExitError) {
 	request := &http.Request{Method: http.MethodGet}
 	var body io.Closer
 	defer func() {
@@ -260,14 +329,14 @@ func readResponse(conn net.Conn, stdout io.Writer, include bool, ctx context.Con
 	for {
 		headerBlock, response, next, err := readNextResponse(reader, request)
 		if err != nil {
-			return receiveError(err, ctx)
+			return nil, false, receiveError(err, ctx)
 		}
 		tr.dump("< ", headerBlock)
 		if response.StatusCode >= 100 && response.StatusCode < 200 && response.StatusCode != http.StatusSwitchingProtocols {
 			_ = response.Body.Close()
 			if include {
 				if err := writeAll(stdout, headerBlock); err != nil {
-					return fail(23, "failed writing output")
+					return nil, false, fail(23, "failed writing output")
 				}
 			}
 			reader = next
@@ -275,29 +344,29 @@ func readResponse(conn net.Conn, stdout io.Writer, include bool, ctx context.Con
 		}
 		if response.StatusCode == http.StatusSwitchingProtocols {
 			_ = response.Body.Close()
-			return fail(8, "protocol upgrades are not supported")
+			return nil, false, fail(8, "protocol upgrades are not supported")
 		}
 		body = response.Body
 		if include {
 			if err := writeAll(stdout, headerBlock); err != nil {
-				return fail(23, "failed writing output")
+				return nil, false, fail(23, "failed writing output")
 			}
 		}
 		tracker := &trackingWriter{writer: stdout}
 		_, copyErr := io.Copy(tracker, response.Body)
 		if tracker.err != nil {
-			return fail(23, "failed writing output")
+			return nil, false, fail(23, "failed writing output")
 		}
 		if copyErr != nil {
 			if isTimeout(copyErr) || ctx.Err() != nil {
-				return fail(28, "operation timed out")
+				return nil, false, fail(28, "operation timed out")
 			}
 			if errors.Is(copyErr, io.ErrUnexpectedEOF) {
-				return fail(18, "partial response body")
+				return nil, false, fail(18, "partial response body")
 			}
-			return fail(56, "failed receiving response: %v", copyErr)
+			return nil, false, fail(56, "failed receiving response: %v", copyErr)
 		}
-		return nil
+		return next, !response.Close, nil
 	}
 }
 

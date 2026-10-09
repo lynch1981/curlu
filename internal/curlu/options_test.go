@@ -77,8 +77,8 @@ func TestParseArgsExactWorkflow(t *testing.T) {
 	if opts.ConnectTimeout != 2500*time.Millisecond || opts.MaxTime != 10*time.Second {
 		t.Fatalf("timeouts not parsed: %+v", opts)
 	}
-	if opts.URL != "http://127.0.0.1:8080/health" {
-		t.Fatalf("URL = %q", opts.URL)
+	if want := []string{"http://127.0.0.1:8080/health"}; !reflect.DeepEqual(opts.URLs, want) {
+		t.Fatalf("URLs = %q", opts.URLs)
 	}
 	wantHeaders := []string{"User-Agent:", "Accept:", "Host:"}
 	if !reflect.DeepEqual(opts.Headers, wantHeaders) {
@@ -137,8 +137,8 @@ func TestParseArgsTestNginxCurlCommand(t *testing.T) {
 	if opts.UTLSHello != utls.HelloFirefox_55 {
 		t.Fatalf("UTLSHello = %#v", opts.UTLSHello)
 	}
-	if opts.URL != "https://localhost:1984/t" {
-		t.Fatalf("URL = %q", opts.URL)
+	if want := []string{"https://localhost:1984/t"}; !reflect.DeepEqual(opts.URLs, want) {
+		t.Fatalf("URLs = %q", opts.URLs)
 	}
 }
 
@@ -348,7 +348,7 @@ func TestParseArgsErrors(t *testing.T) {
 	tests := [][]string{
 		{}, {"--unknown", "http://example.test"}, {"-m", "-1", "http://example.test"},
 		{"-m", "1m", "http://example.test"}, {"--max-time", "NaN", "http://example.test"},
-		{"http://one.test", "http://two.test"}, {"--header"}, {"--utls-hello"},
+		{"--header"}, {"--utls-hello"},
 		{"--utls-hello", "HelloChrome_999", "https://example.test"},
 		{"--utls-hello", "Chrome-102", "https://example.test"}, {"--utls-cipher-append"},
 		{"--utls-hello-list=yes"}, {"--utls-info=yes", "https://example.test"},
