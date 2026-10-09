@@ -592,6 +592,59 @@ func TestUTLSVersionAppendExtendsSupportedVersions(t *testing.T) {
 	}
 }
 
+func TestUTLSExtAppendSendsExtensions(t *testing.T) {
+	hello := make(chan *tls.ClientHelloInfo, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	server.EnableHTTP2 = false
+	server.TLS = &tls.Config{
+		GetConfigForClient: func(info *tls.ClientHelloInfo) (*tls.Config, error) {
+			hello <- info
+			return nil, nil
+		},
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"-sk", "--utls-hello", "HelloChrome_120",
+		"--utls-ext-append", "0xfa01",
+		"--utls-ext-append", "0xfa00",
+		server.URL,
+	}, &stdout, &stderr, "test")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	exts := (<-hello).Extensions
+	for i := range exts[1:] {
+		if exts[i] == 0xfa01 && exts[i+1] == 0xfa00 {
+			return
+		}
+	}
+	t.Fatalf("extensions = %#04x, want 0xfa01 then 0xfa00", exts)
+}
+
+func TestAppendParrotExtensionsKeepsPaddingAndPSKLast(t *testing.T) {
+	sni := &utls.SNIExtension{}
+	padding := &utls.UtlsPaddingExtension{}
+	psk := &utls.FakePreSharedKeyExtension{}
+	tlsConn := &utls.UConn{Extensions: []utls.TLSExtension{sni, padding, psk}}
+
+	appendParrotExtensions(tlsConn, []uint16{0xfa00, 0xfa00})
+
+	exts := tlsConn.Extensions
+	if len(exts) != 5 || exts[0] != sni || exts[3] != padding || exts[4] != psk {
+		t.Fatalf("extensions = %#v", exts)
+	}
+	for _, ext := range exts[1:3] {
+		if g, ok := ext.(*utls.GenericExtension); !ok || g.Id != 0xfa00 {
+			t.Fatalf("extensions = %#v, want two 0xfa00 after SNI", exts)
+		}
+	}
+}
+
 // extNoneServer accepts a TLS 1.2 ClientHello without extensions: with no
 // signature_algorithms or supported_groups, only RSA key exchange works.
 func extNoneServer(hello chan<- *tls.ClientHelloInfo) *httptest.Server {

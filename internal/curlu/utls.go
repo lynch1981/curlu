@@ -129,6 +129,7 @@ func handshakeUTLS(conn net.Conn, opts Options, serverName string, stderr io.Wri
 		if helloID != utls.HelloGolang {
 			applyParrotALPN(tlsConn, opts)
 			appendParrotVersions(tlsConn, opts.UTLSVersions)
+			appendParrotExtensions(tlsConn, opts.UTLSExtensions)
 		}
 		if opts.UTLSInfo {
 			_, _ = fmt.Fprintf(stderr, "EXPECTED_CIPHER_COUNT=%d\n", countNonGREASE(tlsConn.HandshakeState.Hello.CipherSuites))
@@ -180,11 +181,11 @@ func isCertVerifyError(err error) bool {
 }
 
 func utlsOptionsSet(opts Options) bool {
-	return opts.UTLSHello.Client != "" || len(opts.UTLSCiphers) > 0 || len(opts.UTLSVersions) > 0 || opts.UTLSInfo || opts.UTLSALPNNone || opts.UTLSALPN != "" || opts.UTLSExtNone
+	return opts.UTLSHello.Client != "" || len(opts.UTLSCiphers) > 0 || len(opts.UTLSVersions) > 0 || len(opts.UTLSExtensions) > 0 || opts.UTLSInfo || opts.UTLSALPNNone || opts.UTLSALPN != "" || opts.UTLSExtNone
 }
 
 func utlsMutatesHello(opts Options) bool {
-	return len(opts.UTLSCiphers) > 0 || len(opts.UTLSVersions) > 0 || opts.UTLSInfo || opts.UTLSALPNNone || opts.UTLSALPN != ""
+	return len(opts.UTLSCiphers) > 0 || len(opts.UTLSVersions) > 0 || len(opts.UTLSExtensions) > 0 || opts.UTLSInfo || opts.UTLSALPNNone || opts.UTLSALPN != ""
 }
 
 // noExtensionsConn replaces base with a client that sends base's cipher
@@ -265,6 +266,35 @@ func appendParrotVersions(tlsConn *utls.UConn, versions []uint16) {
 		tlsConn.HandshakeState.Hello.SupportedVersions = sv.Versions
 		return
 	}
+}
+
+// appendParrotExtensions adds an empty extension per ID, keeping order and
+// duplicates. They go before padding and pre_shared_key, which must stay
+// at the end of the ClientHello.
+func appendParrotExtensions(tlsConn *utls.UConn, ids []uint16) {
+	if len(ids) == 0 {
+		return
+	}
+	at := len(tlsConn.Extensions)
+	for i, ext := range tlsConn.Extensions {
+		if mustStayLast(ext) {
+			at = i
+			break
+		}
+	}
+	added := make([]utls.TLSExtension, 0, len(ids))
+	for _, id := range ids {
+		added = append(added, &utls.GenericExtension{Id: id})
+	}
+	tlsConn.Extensions = append(tlsConn.Extensions[:at], append(added, tlsConn.Extensions[at:]...)...)
+}
+
+func mustStayLast(ext utls.TLSExtension) bool {
+	switch ext.(type) {
+	case *utls.UtlsPaddingExtension, utls.PreSharedKeyExtension:
+		return true
+	}
+	return false
 }
 
 func replaceFirstALPN(existing []string, first string) []string {

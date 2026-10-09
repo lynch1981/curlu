@@ -40,6 +40,7 @@ is enough. curlu accepts the argv Test::Nginx generates (`-i -H -sS
 - `--utls-hello-list` — List supported uTLS ClientHello IDs
 - `--utls-cipher-append <0xNNNN>` — Append a cipher ID (repeatable)
 - `--utls-version-append <0xNNNN>` — Append a `supported_versions` ID (repeatable)
+- `--utls-ext-append <0xNNNN>` — Append an empty extension (repeatable)
 - `--utls-alpn-hex <hex>` — Set the first ALPN protocol from even-length hex
 - `--utls-alpn-none` — Omit the ALPN extension
 - `--utls-ext-none` — Send a TLS 1.2 ClientHello with no extensions
@@ -106,6 +107,13 @@ implement, the handshake fails.
 `supported_versions` extension, keeping order and duplicates. It needs
 `--utls-hello` and cannot be combined with `--utls-ext-none`. The server
 still negotiates one of the parrot's own versions.
+
+`--utls-ext-append 0xNNNN` adds an empty extension with that ID to the
+parrot's ClientHello, keeping order and duplicates. Added extensions go
+before padding and `pre_shared_key`, which stay last. It needs
+`--utls-hello` and cannot be combined with `--utls-ext-none`. Servers
+reject an ID the parrot already sends, and may reject IDs they recognize
+but expect a body for, so use unassigned IDs such as `0xfa00`.
 
 `--utls-ext-none` sends the selected hello's cipher list, plus appended
 ciphers, in a TLS 1.2 ClientHello with no extensions (no SNI, ALPN,
