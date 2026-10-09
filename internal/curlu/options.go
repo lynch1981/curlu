@@ -30,6 +30,7 @@ type Options struct {
 	MaxTime             time.Duration
 	UTLSHello           utls.ClientHelloID
 	UTLSCiphers         []uint16
+	UTLSVersions        []uint16
 	UTLSHelloList       bool
 	UTLSInfo            bool
 	UTLSALPNNone        bool
@@ -137,6 +138,17 @@ func ParseArgs(args []string) (Options, error) {
 					return opts, fmt.Errorf("option --%s: %w", name, err)
 				}
 				opts.UTLSCiphers = append(opts.UTLSCiphers, cipher)
+			case "utls-version-append":
+				var err error
+				value, i, err = optionArgument(args, i, name, value, hasValue)
+				if err != nil {
+					return opts, err
+				}
+				version, err := parseVersionID(value)
+				if err != nil {
+					return opts, fmt.Errorf("option --%s: %w", name, err)
+				}
+				opts.UTLSVersions = append(opts.UTLSVersions, version)
 			case "utls-hello-list":
 				if hasValue {
 					return opts, optionValueError(name)
@@ -253,6 +265,9 @@ func ParseArgs(args []string) (Options, error) {
 	if opts.UTLSExtNone && (opts.UTLSALPNNone || opts.UTLSALPN != "") {
 		return opts, fmt.Errorf("option --utls-ext-none cannot be combined with --utls-alpn-none or --utls-alpn-hex")
 	}
+	if len(opts.UTLSVersions) > 0 && (opts.UTLSExtNone || opts.UTLSHello.Client == "") {
+		return opts, fmt.Errorf("option --utls-version-append requires --utls-hello and cannot be combined with --utls-ext-none")
+	}
 	if !opts.Help && !opts.Version && !opts.UTLSHelloList && opts.URL == "" {
 		return opts, fmt.Errorf("no URL specified")
 	}
@@ -279,6 +294,17 @@ func parseCipherID(value string) (uint16, error) {
 		return 0, fmt.Errorf("invalid cipher ID %q (expected 0xNNNN)", value)
 	}
 	return uint16(cipher), nil
+}
+
+func parseVersionID(value string) (uint16, error) {
+	if len(value) != 6 || value[:2] != "0x" {
+		return 0, fmt.Errorf("invalid version ID %q (expected 0xNNNN)", value)
+	}
+	version, err := strconv.ParseUint(value[2:], 16, 16)
+	if err != nil {
+		return 0, fmt.Errorf("invalid version ID %q (expected 0xNNNN)", value)
+	}
+	return uint16(version), nil
 }
 
 func optionArgument(args []string, index int, name, value string, hasValue bool) (string, int, error) {
