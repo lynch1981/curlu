@@ -46,9 +46,24 @@ is enough. curlu accepts the argv Test::Nginx generates (`-i -H -sS
 - `--utls-info` — Print `EXPECTED_CIPHER_COUNT` to stderr
 - `--ja4t <fingerprint>` — Craft the TCP SYN to match a JA4T fingerprint (HTTP only; run via `./curl` as root)
 - `-k`, `--insecure` — Skip HTTPS certificate and hostname verification
+- `-g`, `--globoff` — Disable `{a,b}` and `[N-M]` URL globbing
 - `--http2-prior-knowledge` — Issue cleartext HTTP/2 immediately (no `Upgrade`). HTTPS still uses the parrot’s ALPN; `--utls-alpn-hex` / `--utls-alpn-none` still override
 - `-h`, `--help` — Show this help
 - `-V`, `--version` — Show version information
+
+## Multiple requests
+
+curlu accepts several URLs and curl-style globs in the path and query:
+`{a,b}` sets and `[N-M]` numeric ranges (`[01-10]` zero-pads). Globs expand
+in curl order, the rightmost varying fastest; `\{` etc. are literal. All URLs
+must share one scheme, host and port. Requests run in order on one
+connection: HTTP/2 opens one stream per URL, and HTTP/1.1 uses keep-alive,
+reconnecting only after a response that closes the connection. Responses
+are written to stdout back to back, and the first failure stops the run.
+
+```sh
+curlu -sk --utls-hello HelloChrome_120 'https://127.0.0.1:8443/t?r={1,2}'
+```
 
 Timeouts accept decimal seconds. `0` means no limit. The last value of a
 repeated timeout option wins.

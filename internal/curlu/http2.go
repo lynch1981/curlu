@@ -14,10 +14,9 @@ import (
 	"golang.org/x/net/http2"
 )
 
-func roundTripHTTP2(conn net.Conn, target *url.URL, headers []requestHeader, suppressed map[string]bool, stdout io.Writer, include bool, version string, ctx context.Context, tr trace) *ExitError {
-	req := buildHTTP2Request(target, headers, suppressed, version).WithContext(ctx)
-	tr.dump("> ", formatHTTP2VerboseRequest(req))
-
+// roundTripHTTP2 sends one stream per target, in order, on a single HTTP/2
+// connection.
+func roundTripHTTP2(conn net.Conn, targets []*url.URL, headers []requestHeader, suppressed map[string]bool, stdout io.Writer, include bool, version string, ctx context.Context, tr trace) *ExitError {
 	transport := &http2.Transport{
 		DisableCompression: true,
 		MaxHeaderListSize:  maxResponseHeaderBytes,
@@ -27,6 +26,21 @@ func roundTripHTTP2(conn net.Conn, target *url.URL, headers []requestHeader, sup
 		return http2SendError(err, ctx)
 	}
 	defer clientConn.Close()
+
+	for i, target := range targets {
+		if i > 0 {
+			tr.info("Re-using existing connection")
+		}
+		if exitErr := roundTripHTTP2Stream(clientConn, target, headers, suppressed, stdout, include, version, ctx, tr); exitErr != nil {
+			return exitErr
+		}
+	}
+	return nil
+}
+
+func roundTripHTTP2Stream(clientConn *http2.ClientConn, target *url.URL, headers []requestHeader, suppressed map[string]bool, stdout io.Writer, include bool, version string, ctx context.Context, tr trace) *ExitError {
+	req := buildHTTP2Request(target, headers, suppressed, version).WithContext(ctx)
+	tr.dump("> ", formatHTTP2VerboseRequest(req))
 
 	response, err := clientConn.RoundTrip(req)
 	if err != nil {
