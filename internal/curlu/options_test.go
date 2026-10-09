@@ -370,9 +370,12 @@ func TestParseArgsErrors(t *testing.T) {
 		{"--resolve", "[]:443:127.0.0.1", "http://example.test"},
 		{"--ja4t", "http://example.test"}, {"--ja4t", "bad", "http://example.test"},
 		{"--ja4t-retransmit", "1000", "http://example.test"},
+		{"--utls-version-append", "0x7a8a", "https://example.test"},
+		{"--utls-hello", "HelloChrome_120", "--utls-ext-none", "--utls-version-append", "0x7a8a", "https://example.test"},
 	}
 	for _, cipher := range []string{"0x0", "0X1234", "1234", "0x12345", "0xzzzz", "-0x0001"} {
 		tests = append(tests, []string{"--utls-cipher-append", cipher, "https://example.test"})
+		tests = append(tests, []string{"--utls-hello", "HelloChrome_120", "--utls-version-append", cipher, "https://example.test"})
 	}
 	for _, args := range tests {
 		if _, err := ParseArgs(args); err == nil {

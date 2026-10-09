@@ -22,6 +22,7 @@ Options:
       --utls-hello <id>         Select a uTLS ClientHello ID (HelloChrome_120)
       --utls-hello-list         List supported uTLS ClientHello IDs
       --utls-cipher-append <id> Append a 0xNNNN cipher ID (repeatable)
+      --utls-version-append <id> Append a 0xNNNN supported_versions ID (repeatable)
       --utls-alpn-hex <hex>     Set the first ALPN protocol from even-length hex
       --utls-alpn-none          Omit the ALPN extension
       --utls-ext-none           Send a TLS 1.2 ClientHello with no extensions

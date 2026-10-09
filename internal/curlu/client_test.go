@@ -558,6 +558,40 @@ func TestUTLSALPNNoneOmitsExtension(t *testing.T) {
 	}
 }
 
+func TestUTLSVersionAppendExtendsSupportedVersions(t *testing.T) {
+	hello := make(chan *tls.ClientHelloInfo, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	server.EnableHTTP2 = false
+	server.TLS = &tls.Config{
+		GetConfigForClient: func(info *tls.ClientHelloInfo) (*tls.Config, error) {
+			hello <- info
+			return nil, nil
+		},
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"-sk", "--utls-hello", "HelloChrome_133",
+		"--utls-version-append", "0x7a8a",
+		"--utls-version-append", "0x0afa",
+		server.URL,
+	}, &stdout, &stderr, "test")
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+	}
+	info := <-hello
+	if len(info.SupportedVersions) < 2 {
+		t.Fatalf("supported versions = %#v", info.SupportedVersions)
+	}
+	if got, want := info.SupportedVersions[len(info.SupportedVersions)-2:], []uint16{0x7a8a, 0x0afa}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("appended versions = %#v, want %#v", got, want)
+	}
+}
+
 // extNoneServer accepts a TLS 1.2 ClientHello without extensions: with no
 // signature_algorithms or supported_groups, only RSA key exchange works.
 func extNoneServer(hello chan<- *tls.ClientHelloInfo) *httptest.Server {
