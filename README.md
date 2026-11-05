@@ -94,7 +94,7 @@ curlu --utls-hello HelloChrome_133 https://example.com/
 curlu --utls-hello-list
 ```
 
-A parrot keeps its ALPN (`HelloGolang` advertises `http/1.1` only).
+A parrot keeps its ALPN (`HelloGolang` advertises `h2`, `http/1.1`).
 `--utls-alpn-hex` replaces the first protocol from even-length hex;
 `--utls-alpn-none` omits ALPN. If the server selects `h2`, the GET uses
 HTTP/2; otherwise it uses HTTP/1.1.

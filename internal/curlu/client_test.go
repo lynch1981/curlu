@@ -417,7 +417,7 @@ func TestUTLSHelloGolangCipherAppend(t *testing.T) {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 	info := <-hello
-	if want := []string{"http/1.1"}; !reflect.DeepEqual(info.SupportedProtos, want) {
+	if want := []string{"h2", "http/1.1"}; !reflect.DeepEqual(info.SupportedProtos, want) {
 		t.Fatalf("ALPN = %q, want %q", info.SupportedProtos, want)
 	}
 	if got, want := info.CipherSuites[len(info.CipherSuites)-2:], []uint16{0x1234, 0x00ff}; !reflect.DeepEqual(got, want) {

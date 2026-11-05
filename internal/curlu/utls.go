@@ -215,7 +215,7 @@ func golangNextProtos(opts Options) []string {
 	case opts.UTLSALPN != "":
 		return []string{opts.UTLSALPN, "http/1.1"}
 	default:
-		return []string{"http/1.1"}
+		return []string{"h2", "http/1.1"}
 	}
 }
 

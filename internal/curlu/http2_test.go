@@ -103,44 +103,44 @@ func TestHTTP2HeaderSuppression(t *testing.T) {
 	}
 }
 
-func TestHelloGolangStaysHTTP1OnHTTP2Server(t *testing.T) {
+func TestHelloGolangNegotiatesHTTP2(t *testing.T) {
+	for _, args := range [][]string{
+		{"-i", "-sk", "--max-time", "2"},
+		{"-i", "-sk", "--http2-prior-knowledge", "--max-time", "2"},
+	} {
+		var proto string
+		server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			proto = r.Proto
+			_, _ = io.WriteString(w, "h2")
+		}))
+		server.EnableHTTP2 = true
+		server.StartTLS()
+		defer server.Close()
+
+		var stdout, stderr bytes.Buffer
+		code := Run(append(args, server.URL), &stdout, &stderr, "test")
+		if code != 0 {
+			t.Fatalf("args = %v, code = %d, stderr = %q", args, code, stderr.String())
+		}
+		if proto != "HTTP/2.0" {
+			t.Fatalf("args = %v, proto = %q", args, proto)
+		}
+		if !strings.HasPrefix(stdout.String(), "HTTP/2 200") {
+			t.Fatalf("args = %v, stdout = %q", args, stdout.String())
+		}
+	}
+}
+
+func TestHelloGolangFallsBackToHTTP1(t *testing.T) {
 	var proto string
-	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		proto = r.Proto
 		_, _ = io.WriteString(w, "h1")
 	}))
-	server.EnableHTTP2 = true
-	server.StartTLS()
 	defer server.Close()
 
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{"-i", "-sk", "--max-time", "2", server.URL}, &stdout, &stderr, "test")
-	if code != 0 {
-		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
-	}
-	if proto != "HTTP/1.1" {
-		t.Fatalf("proto = %q", proto)
-	}
-	if !strings.HasPrefix(stdout.String(), "HTTP/1.1 200") {
-		t.Fatalf("stdout = %q", stdout.String())
-	}
-	if strings.Contains(stdout.String(), "HTTP/2") {
-		t.Fatalf("unexpected HTTP/2 output: %q", stdout.String())
-	}
-}
-
-func TestHelloGolangPriorKnowledgeStaysHTTP1OnHTTPS(t *testing.T) {
-	var proto string
-	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		proto = r.Proto
-		_, _ = io.WriteString(w, "h1")
-	}))
-	server.EnableHTTP2 = true
-	server.StartTLS()
-	defer server.Close()
-
-	var stdout, stderr bytes.Buffer
-	code := Run([]string{"-i", "-sk", "--http2-prior-knowledge", "--max-time", "2", server.URL}, &stdout, &stderr, "test")
 	if code != 0 {
 		t.Fatalf("code = %d, stderr = %q", code, stderr.String())
 	}
