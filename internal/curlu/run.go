@@ -32,6 +32,10 @@ Options:
   -k, --insecure                Allow insecure server connections
   -g, --globoff                 Disable {a,b} and [N-M] URL globbing
       --http2-prior-knowledge   Use HTTP/2 without upgrade (h2c); HTTPS still uses ALPN
+      --http3-only              Use HTTP/3 over QUIC (HTTPS, no uTLS options)
+      --http3                   Same as --http3-only; there is no TCP fallback
+  -4, --ipv4                    Connect to IPv4 addresses only
+  -6, --ipv6                    Connect to IPv6 addresses only
   -h, --help                    Show this help
   -V, --version                 Show version information
 
@@ -52,7 +56,7 @@ func Run(args []string, stdout, stderr io.Writer, version string) int {
 		return 0
 	}
 	if opts.Version {
-		if _, err := fmt.Fprintf(stdout, "curlu %s (uTLS %s, %s)\nProtocols: http https\n", version, runtimeUTLSVersion(), runtimeGoVersion()); err != nil {
+		if _, err := fmt.Fprintf(stdout, "curlu %s (uTLS %s, %s)\nProtocols: http https\nFeatures: HTTP2 HTTP3\n", version, runtimeUTLSVersion(), runtimeGoVersion()); err != nil {
 			return report(stderr, opts, 23, "failed writing output")
 		}
 		return 0

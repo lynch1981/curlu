@@ -49,6 +49,10 @@ is enough. curlu accepts the argv Test::Nginx generates (`-i -H -sS
 - `-k`, `--insecure` — Skip HTTPS certificate and hostname verification
 - `-g`, `--globoff` — Disable `{a,b}` and `[N-M]` URL globbing
 - `--http2-prior-knowledge` — Issue cleartext HTTP/2 immediately (no `Upgrade`). HTTPS still uses the parrot’s ALPN; `--utls-alpn-hex` / `--utls-alpn-none` still override
+- `--http3-only` — Use HTTP/3 over QUIC (HTTPS only, see [HTTP/3](#http3))
+- `--http3` — Same as `--http3-only`; there is no TCP fallback
+- `-4`, `--ipv4` — Connect to IPv4 addresses only
+- `-6`, `--ipv6` — Connect to IPv6 addresses only
 - `-h`, `--help` — Show this help
 - `-V`, `--version` — Show version information
 
@@ -58,7 +62,7 @@ curlu accepts several URLs and curl-style globs in the path and query:
 `{a,b}` sets and `[N-M]` numeric ranges (`[01-10]` zero-pads). Globs expand
 in curl order, the rightmost varying fastest; `\{` etc. are literal. All URLs
 must share one scheme, host and port. Requests run in order on one
-connection: HTTP/2 opens one stream per URL, and HTTP/1.1 uses keep-alive,
+connection: HTTP/2 and HTTP/3 open one stream per URL, and HTTP/1.1 uses keep-alive,
 reconnecting only after a response that closes the connection. Responses
 are written to stdout back to back, and the first failure stops the run.
 
@@ -148,6 +152,21 @@ The repo ships a `curl` wrapper (not a symlink) for that path. Without
 `--ja4t` the wrapper runs `curlu` unchanged. With `--ja4t` it needs root,
 `ip`, and `nft`. `./curlu --ja4t` is unsupported.
 
+## HTTP/3
+
+`--http3-only` sends the GET over QUIC. Test::Nginx passes this flag for
+`--- http3` blocks, and `curl -V` lists `HTTP3` under `Features:`.
+
+```sh
+curlu -k --http3-only https://127.0.0.1:8443/t
+```
+
+The ClientHello comes from Go's `crypto/tls`, so its JA4 is stable for the
+pinned Go and [quic-go](https://github.com/quic-go/quic-go) versions.
+`--utls-*`, `--ja4t` and `--http2-prior-knowledge` cannot be combined with
+HTTP/3. Unlike curl, `--http3` never falls back to TCP, so a test cannot
+silently get a `t13` fingerprint instead of `q13`.
+
 ## Limits
 
 - One GET to one explicit `http://` or `https://` URL.
@@ -156,8 +175,9 @@ The repo ships a `curl` wrapper (not a symlink) for that path. Without
 
 ## Build and test
 
-Go 1.24.0 and uTLS v1.8.2 are pinned so JA4 ClientHello fingerprints stay
-reproducible. Bumping either can change `HelloGolang` and parrot JA4 values
+Go 1.24.0, uTLS v1.8.2 and quic-go v0.59.1 are pinned so JA4 ClientHello
+fingerprints stay reproducible. quic-go v0.59.1 is the newest release that
+supports Go 1.24. Bumping any of them can change `HelloGolang` and parrot JA4 values
 and must be paired with catalog and expected-fingerprint updates.
 
 `./build.sh` sets `GOTOOLCHAIN=go1.24.0` from the `go` line in `go.mod` and
@@ -174,7 +194,7 @@ wrapper is a checked-in script next to it.
 ## Output
 
 Response data goes to stdout. `-i` includes the status line and headers
-(`HTTP/2 200` when the transfer used HTTP/2).
+(`HTTP/2 200` or `HTTP/3 200` when the transfer used that version).
 
 Errors are `curlu: (N) message` on stderr, with the matching curl exit
 code. HTTP 4xx and 5xx are successful transfers, matching curl without
@@ -199,3 +219,5 @@ code. HTTP 4xx and 5xx are successful transfers, matching curl without
 | 55 | Request send failed |
 | 56 | Response receive failed |
 | 60 | TLS certificate verification failed |
+| 95 | HTTP/3 error |
+| 96 | QUIC connection failed |

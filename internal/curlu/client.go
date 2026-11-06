@@ -43,6 +43,9 @@ func execute(opts Options, stdout, stderr io.Writer, version string) *ExitError 
 	defer cancelOperation()
 
 	tr := newTrace(stderr, opts.Verbose)
+	if opts.HTTP3 {
+		return executeHTTP3(operationCtx, opts, targets, headers, suppressedDefaults, stdout, version, tr)
+	}
 	conn, proto, exitErr := connect(operationCtx, opts, target, stderr, tr)
 	if exitErr != nil {
 		return exitErr
@@ -477,10 +480,10 @@ func canonicalPort(port string) string {
 	return strconv.FormatUint(n, 10)
 }
 
-func dialResolved(ctx context.Context, addrs []string, port string) (net.Conn, error) {
+func dialResolved(ctx context.Context, network string, addrs []string, port string) (net.Conn, error) {
 	var lastErr error
 	for _, addr := range addrs {
-		conn, err := dialContext(ctx, "tcp", net.JoinHostPort(addr, port))
+		conn, err := dialContext(ctx, network, net.JoinHostPort(addr, port))
 		if err == nil {
 			return conn, nil
 		}
@@ -507,16 +510,37 @@ func checkTransportOptions(opts Options, target *url.URL) *ExitError {
 	if utls && target.Scheme != "https" {
 		return fail(2, "uTLS options require an HTTPS URL")
 	}
+	if ja4t && opts.IPFamily == "6" {
+		return fail(2, "JA4T options cannot be combined with --ipv6")
+	}
+	if opts.HTTP3 {
+		switch {
+		case ja4t:
+			return fail(2, "JA4T options cannot be combined with HTTP/3")
+		case utls:
+			return fail(2, "uTLS options cannot be combined with HTTP/3")
+		case opts.HTTP2PriorKnowledge:
+			return fail(2, "--http2-prior-knowledge cannot be combined with HTTP/3")
+		case target.Scheme != "https":
+			return fail(2, "HTTP/3 requires an HTTPS URL")
+		}
+	}
 	return nil
+}
+
+// familyNetwork narrows a network such as "tcp" to the family set by -4 or -6.
+func familyNetwork(opts Options, network string) string {
+	return network + opts.IPFamily
 }
 
 func dial(ctx context.Context, opts Options, host, port string) (net.Conn, error) {
 	addrs := lookupResolve(opts.Resolve, host, port)
 	if !ja4tEnabled(opts) {
+		network := familyNetwork(opts, "tcp")
 		if len(addrs) > 0 {
-			return dialResolved(ctx, addrs, port)
+			return dialResolved(ctx, network, addrs, port)
 		}
-		return dialContext(ctx, "tcp", net.JoinHostPort(host, port))
+		return dialContext(ctx, network, net.JoinHostPort(host, port))
 	}
 	if len(addrs) == 0 {
 		var err error

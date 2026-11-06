@@ -27,35 +27,63 @@ func roundTripHTTP2(conn net.Conn, targets []*url.URL, headers []requestHeader, 
 	}
 	defer clientConn.Close()
 
+	mux := muxedRequests{
+		major:        2,
+		roundTrip:    clientConn.RoundTrip,
+		receiveError: http2ReceiveError,
+		headers:      headers,
+		suppressed:   suppressed,
+		stdout:       stdout,
+		include:      include,
+		version:      version,
+		tr:           tr,
+	}
+	return mux.run(ctx, targets)
+}
+
+// muxedRequests runs GETs as streams on one HTTP/2 or HTTP/3 connection.
+type muxedRequests struct {
+	major        int
+	roundTrip    func(*http.Request) (*http.Response, error)
+	receiveError func(error, context.Context) *ExitError
+	headers      []requestHeader
+	suppressed   map[string]bool
+	stdout       io.Writer
+	include      bool
+	version      string
+	tr           trace
+}
+
+func (m muxedRequests) run(ctx context.Context, targets []*url.URL) *ExitError {
 	for i, target := range targets {
 		if i > 0 {
-			tr.info("Re-using existing connection")
+			m.tr.info("Re-using existing connection")
 		}
-		if exitErr := roundTripHTTP2Stream(clientConn, target, headers, suppressed, stdout, include, version, ctx, tr); exitErr != nil {
+		if exitErr := m.stream(ctx, target); exitErr != nil {
 			return exitErr
 		}
 	}
 	return nil
 }
 
-func roundTripHTTP2Stream(clientConn *http2.ClientConn, target *url.URL, headers []requestHeader, suppressed map[string]bool, stdout io.Writer, include bool, version string, ctx context.Context, tr trace) *ExitError {
-	req := buildHTTP2Request(target, headers, suppressed, version).WithContext(ctx)
-	tr.dump("> ", formatHTTP2VerboseRequest(req))
+func (m muxedRequests) stream(ctx context.Context, target *url.URL) *ExitError {
+	req := buildMuxedRequest(target, m.major, m.headers, m.suppressed, m.version).WithContext(ctx)
+	m.tr.dump("> ", formatMuxedRequest(req, m.major))
 
-	response, err := clientConn.RoundTrip(req)
+	response, err := m.roundTrip(req)
 	if err != nil {
-		return http2ReceiveError(err, ctx)
+		return m.receiveError(err, ctx)
 	}
 	defer response.Body.Close()
-	headerBlock := formatHTTP2Headers(response)
-	tr.dump("< ", headerBlock)
+	headerBlock := formatMuxedHeaders(response, m.major)
+	m.tr.dump("< ", headerBlock)
 
-	if include {
-		if err := writeAll(stdout, headerBlock); err != nil {
+	if m.include {
+		if err := writeAll(m.stdout, headerBlock); err != nil {
 			return fail(23, "failed writing output")
 		}
 	}
-	tracker := &trackingWriter{writer: stdout}
+	tracker := &trackingWriter{writer: m.stdout}
 	_, copyErr := io.Copy(tracker, response.Body)
 	if tracker.err != nil {
 		return fail(23, "failed writing output")
@@ -72,12 +100,12 @@ func roundTripHTTP2Stream(clientConn *http2.ClientConn, target *url.URL, headers
 	return nil
 }
 
-func buildHTTP2Request(target *url.URL, headers []requestHeader, suppressed map[string]bool, version string) *http.Request {
+func buildMuxedRequest(target *url.URL, major int, headers []requestHeader, suppressed map[string]bool, version string) *http.Request {
 	req := &http.Request{
 		Method:     http.MethodGet,
 		URL:        target,
-		Proto:      "HTTP/2.0",
-		ProtoMajor: 2,
+		Proto:      fmt.Sprintf("HTTP/%d.0", major),
+		ProtoMajor: major,
 		Header:     make(http.Header),
 		Host:       requestHost(target),
 	}
@@ -120,9 +148,9 @@ func hopByHopHeader(name string) bool {
 	}
 }
 
-func formatHTTP2VerboseRequest(req *http.Request) []byte {
+func formatMuxedRequest(req *http.Request, major int) []byte {
 	var block strings.Builder
-	fmt.Fprintf(&block, "GET %s HTTP/2\r\nHost: %s\r\n", req.URL.RequestURI(), req.Host)
+	fmt.Fprintf(&block, "GET %s HTTP/%d\r\nHost: %s\r\n", req.URL.RequestURI(), major, req.Host)
 	writeHeader := func(name string) {
 		for _, value := range req.Header[name] {
 			fmt.Fprintf(&block, "%s: %s\r\n", name, value)
@@ -145,9 +173,9 @@ func formatHTTP2VerboseRequest(req *http.Request) []byte {
 	return []byte(block.String())
 }
 
-func formatHTTP2Headers(response *http.Response) []byte {
+func formatMuxedHeaders(response *http.Response, major int) []byte {
 	var block strings.Builder
-	fmt.Fprintf(&block, "HTTP/2 %d\r\n", response.StatusCode)
+	fmt.Fprintf(&block, "HTTP/%d %d\r\n", major, response.StatusCode)
 	names := make([]string, 0, len(response.Header))
 	for name := range response.Header {
 		names = append(names, name)

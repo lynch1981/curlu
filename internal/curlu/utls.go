@@ -151,20 +151,24 @@ func handshakeUTLS(conn net.Conn, opts Options, serverName string, stderr io.Wri
 		return nil, "", fail(35, "TLS handshake failed: %v", err)
 	}
 	state := tlsConn.ConnectionState()
-	tr.info("SSL connection using %s / %s", tls.VersionName(state.Version), tls.CipherSuiteName(state.CipherSuite))
-	if state.NegotiatedProtocol != "" {
-		tr.info("ALPN: server accepted %s", state.NegotiatedProtocol)
-	}
-	if opts.Insecure {
-		tr.info("SSL certificate verification is disabled")
-	} else {
-		tr.info("SSL certificate verify ok.")
-	}
+	traceHandshake(tr, opts, state.Version, state.CipherSuite, state.NegotiatedProtocol)
 	switch state.NegotiatedProtocol {
 	case "", "http/1.1", "h2":
 		return tlsConn, state.NegotiatedProtocol, nil
 	default:
 		return nil, state.NegotiatedProtocol, fail(1, "server negotiated protocol %q; only HTTP/1.1 and HTTP/2 are supported", state.NegotiatedProtocol)
+	}
+}
+
+func traceHandshake(tr trace, opts Options, version, cipher uint16, alpn string) {
+	tr.info("SSL connection using %s / %s", tls.VersionName(version), tls.CipherSuiteName(cipher))
+	if alpn != "" {
+		tr.info("ALPN: server accepted %s", alpn)
+	}
+	if opts.Insecure {
+		tr.info("SSL certificate verification is disabled")
+	} else {
+		tr.info("SSL certificate verify ok.")
 	}
 }
 

@@ -50,7 +50,7 @@ func TestPinnedVersions(t *testing.T) {
 	if !strings.Contains(got, PinnedGoVersion) {
 		t.Errorf("curlu -V missing %s:\n%s", PinnedGoVersion, got)
 	}
-	if want := "Protocols: http https\n"; !strings.HasSuffix(got, want) {
+	if want := "Protocols: http https\nFeatures: HTTP2 HTTP3\n"; !strings.HasSuffix(got, want) {
 		t.Errorf("curlu -V = %q, want suffix %q", got, want)
 	}
 }

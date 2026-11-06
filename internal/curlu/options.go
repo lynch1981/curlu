@@ -40,6 +40,8 @@ type Options struct {
 	JA4T                *ja4tFingerprint
 	Insecure            bool
 	HTTP2PriorKnowledge bool
+	HTTP3               bool
+	IPFamily            string
 	Globoff             bool
 	URLs                []string
 	Help                bool
@@ -207,6 +209,21 @@ func ParseArgs(args []string) (Options, error) {
 					return opts, optionValueError(name)
 				}
 				opts.HTTP2PriorKnowledge = true
+			case "http3", "http3-only":
+				if hasValue {
+					return opts, optionValueError(name)
+				}
+				opts.HTTP3 = true
+			case "ipv4":
+				if hasValue {
+					return opts, optionValueError(name)
+				}
+				opts.IPFamily = "4"
+			case "ipv6":
+				if hasValue {
+					return opts, optionValueError(name)
+				}
+				opts.IPFamily = "6"
 			case "globoff":
 				if hasValue {
 					return opts, optionValueError(name)
@@ -249,6 +266,10 @@ func ParseArgs(args []string) (Options, error) {
 				opts.Insecure = true
 			case 'g':
 				opts.Globoff = true
+			case '4':
+				opts.IPFamily = "4"
+			case '6':
+				opts.IPFamily = "6"
 			case 'h':
 				opts.Help = true
 			case 'V':
